@@ -30,17 +30,18 @@ android {
         versionName = flutter.versionName
     }
 
-buildTypes {
-    release {
-        signingConfig = signingConfigs.getByName("debug") // или твой конфиг
-        minifyEnabled = true // если стоит true, нужны правила
-        proguardFiles(
-            getDefaultProguardFile("proguard-android-optimize.txt"),
-            "proguard-rules.pro" // ВОТ ЭТА СТРОКА
-        )
+        buildTypes {
+        release {
+            // В Kotlin DSL вместо minifyEnabled используется isMinifyEnabled
+            isMinifyEnabled = false 
+            isShrinkResources = false
+            
+            signingConfig = signingConfigs.getByName("debug")
+            
+            proguardFiles(
+                getDefaultProguardFile("proguard-android-optimize.txt"),
+                "proguard-rules.pro"
+            )
+        }
     }
-}
-
-flutter {
-    source = "../.."
-}
+} // Убедись, что эта скобка закрывает блок android
