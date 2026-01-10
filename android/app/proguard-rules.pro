@@ -1,0 +1,5 @@
+-dontwarn javax.annotation.Nullable
+-dontwarn org.conscrypt.**
+-dontwarn okhttp3.**
+-keep class okhttp3.** { *; }
+-dontwarn org.codehaus.mojo.animal_sniffer.*
