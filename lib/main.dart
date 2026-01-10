@@ -47,19 +47,21 @@ class _FurryRedditAppState extends State<FurryRedditApp> {
     }
   }
 
-  Future<void> setWallpaper() async {
+Future<void> setWallpaper() async {
     if (imageUrl.isEmpty) return;
     try {
       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Установка обоев...")));
-      // Используем плагин async_wallpaper для установки
+      
+      // Исправленный вызов без лишних параметров
       await AsyncWallpaper.setWallpaper(
         url: imageUrl,
         wallpaperLocation: AsyncWallpaper.BOTH_SCREENS,
-        toastMessage: "Обои установлены!",
-        errorToastMessage: "Ошибка установки",
+        goToHome: true, // Вместо тостов используем возврат на главный экран
       );
+      
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Готово!")));
     } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Не удалось установить")));
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Ошибка установки")));
     }
   }
 
