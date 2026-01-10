@@ -1,112 +1,154 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:http/http.dart' as http;
 import 'dart:convert';
 import 'dart:math';
 import 'package:async_wallpaper/async_wallpaper.dart';
 
-void main() => runApp(const MaterialApp(home: FurryRedditApp()));
+void main() => runApp(const MaterialApp(home: FurryWallpaperApp()));
 
-class FurryRedditApp extends StatefulWidget {
-  const FurryRedditApp({super.key});
+class FurryWallpaperApp extends StatefulWidget {
+  const FurryWallpaperApp({super.key});
   @override
-  State<FurryRedditApp> createState() => _FurryRedditAppState();
+  State<FurryWallpaperApp> createState() => _FurryWallpaperAppState();
 }
 
-class _FurryRedditAppState extends State<FurryRedditApp> {
+class _FurryWallpaperAppState extends State<FurryWallpaperApp> {
   String imageUrl = "";
   bool isLoading = false;
+  String debugLog = "Log started...";
 
-  // Прямая загрузка из Reddit r/furry
+  void addToLog(String message) {
+    setState(() {
+      debugLog += "\n[${DateTime.now().toString().split(' ')[1].split('.')[0]}] $message";
+    });
+  }
+
   Future<void> fetchFromReddit() async {
     setState(() => isLoading = true);
+    addToLog("Fetching from r/furry...");
     try {
-      final response = await http.get(Uri.parse('https://www.reddit.com/r/furry/hot.json?limit=50'))
-          .timeout(const Duration(seconds: 15));
+      // ОБХОД ОГРАНИЧЕНИЙ: User-Agent обязателен для Reddit
+      final response = await http.get(
+        Uri.parse('https://www.reddit.com/r/furry/hot.json?limit=30'),
+        headers: {'User-Agent': 'Flutter:LunyaApp:v1.0 (by /u/Lunya)'},
+      ).timeout(const Duration(seconds: 15));
+
+      addToLog("Status Code: ${response.statusCode}");
 
       if (response.statusCode == 200) {
         final data = json.decode(response.body);
         final posts = data['data']['children'] as List;
-        
-        // Фильтруем только посты с картинками (i.redd.it)
         final imagePosts = posts.where((post) {
           final url = post['data']['url'] as String;
           return url.contains('i.redd.it') && (url.endsWith('.jpg') || url.endsWith('.png'));
         }).toList();
 
         if (imagePosts.isNotEmpty) {
-          final randomPost = imagePosts[Random().nextInt(imagePosts.length)];
-          setState(() => imageUrl = randomPost['data']['url']);
+          final newUrl = imagePosts[Random().nextInt(imagePosts.length)]['data']['url'];
+          setState(() => imageUrl = newUrl);
+          addToLog("Found image: $newUrl");
+        } else {
+          addToLog("No image posts found in Hot.");
         }
       } else {
-        throw Exception("Ошибка Reddit: ${response.statusCode}");
+        addToLog("Reddit Error: ${response.body}");
       }
     } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Ошибка: $e")));
+      addToLog("Exception: $e");
     } finally {
       setState(() => isLoading = false);
     }
   }
 
-Future<void> setWallpaper() async {
+  Future<void> setWallpaper() async {
     if (imageUrl.isEmpty) return;
+    addToLog("Starting wallpaper set...");
     try {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Установка обоев...")));
-      
-      // Исправленный вызов без лишних параметров
+      // ИСПРАВЛЕНИЕ: Убрали toastMessage для совместимости с v2.1.0
       await AsyncWallpaper.setWallpaper(
         url: imageUrl,
         wallpaperLocation: AsyncWallpaper.BOTH_SCREENS,
-        goToHome: true, // Вместо тостов используем возврат на главный экран
+        goToHome: true,
       );
-      
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Готово!")));
+      addToLog("Success: Wallpaper set!");
     } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Ошибка установки")));
+      addToLog("Wallpaper Error: $e");
     }
+  }
+
+  void showLog() {
+    showModalBottomSheet(
+      context: context,
+      builder: (context) => Container(
+        padding: const EdgeInsets.all(16),
+        color: Colors.black87,
+        child: Column(
+          children: [
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                const Text("Debug Log", style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+                IconButton(
+                  icon: const Icon(Icons.copy, color: Colors.blue),
+                  onPressed: () {
+                    Clipboard.setData(ClipboardData(text: debugLog));
+                    Navigator.pop(context);
+                  },
+                ),
+              ],
+            ),
+            Expanded(
+              child: SingleChildScrollView(
+                child: Text(debugLog, style: const TextStyle(color: Colors.greenAccent, fontSize: 12, fontFamily: 'monospace')),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: const Color(0xFF121212),
-      appBar: AppBar(title: const Text("r/Furry Wallpapers"), backgroundColor: Colors.orange),
-      body: Center(
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            if (imageUrl.isNotEmpty)
-              Expanded(
-                child: Padding(
-                  padding: const EdgeInsets.all(20.0),
-                  child: ClipRRect(
-                    borderRadius: BorderRadius.circular(15),
-                    child: Image.network(imageUrl, fit: BoxFit.contain),
+      backgroundColor: const Color(0xFF1A1A2E),
+      appBar: AppBar(
+        title: const Text("Lunya r/Furry"),
+        backgroundColor: Colors.deepPurple,
+        actions: [IconButton(onPressed: showLog, icon: const Icon(Icons.terminal))],
+      ),
+      body: Column(
+        children: [
+          Expanded(
+            child: Center(
+              child: imageUrl.isNotEmpty
+                  ? Image.network(imageUrl, fit: BoxFit.contain)
+                  : const Icon(Icons.pets, size: 100, color: Colors.white24),
+            ),
+          ),
+          Padding(
+            padding: const EdgeInsets.all(20),
+            child: Row(
+              children: [
+                Expanded(
+                  child: ElevatedButton(
+                    onPressed: isLoading ? null : fetchFromReddit,
+                    child: Text(isLoading ? "Загрузка..." : "Найти арт"),
                   ),
                 ),
-              )
-            else
-              const Icon(Icons.pets, size: 100, color: Colors.orange),
-            
-            const SizedBox(height: 20),
-            if (isLoading)
-              const CircularProgressIndicator(color: Colors.orange)
-            else ...[
-              ElevatedButton(
-                onPressed: fetchFromReddit,
-                style: ElevatedButton.styleFrom(backgroundColor: Colors.orange),
-                child: const Text("Загрузить из Reddit"),
-              ),
-              const SizedBox(height: 10),
-              if (imageUrl.isNotEmpty)
-                ElevatedButton(
-                  onPressed: setWallpaper,
-                  style: ElevatedButton.styleFrom(backgroundColor: Colors.green),
-                  child: const Text("Установить как обои"),
-                ),
-            ],
-            const SizedBox(height: 40),
-          ],
-        ),
+                if (imageUrl.isNotEmpty) ...[
+                  const SizedBox(width: 10),
+                  ElevatedButton(
+                    onPressed: setWallpaper,
+                    style: ElevatedButton.styleFrom(backgroundColor: Colors.green),
+                    child: const Icon(Icons.wallpaper),
+                  ),
+                ]
+              ],
+            ),
+          ),
+        ],
       ),
     );
   }
