@@ -8,17 +8,27 @@ environment:
 dependencies:
   flutter:
     sdk: flutter
+  
+  # State Management
   provider: ^6.1.1
+  
+  # Database
   sqflite: ^2.3.0
   path: ^1.8.3
+  
+  # Network
   http: ^1.1.0
+  
+  # Image/Video
   cached_network_image: ^3.3.0
   video_player: ^2.8.1
+  
+  # Utilities
   share_plus: ^7.2.1
   permission_handler: ^11.0.1
   
-  # Wallpaper - АЛЬТЕРНАТИВА
-  flutter_wallpaper: ^0.1.2
+  # Wallpaper
+  wallpaper_manager_plus: ^1.0.2
 
 dev_dependencies:
   flutter_test:
