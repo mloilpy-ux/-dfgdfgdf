@@ -9,11 +9,11 @@ environment:
 dependencies:
   flutter:
     sdk: flutter
-  # Проверьте эти строки:
+  cupertino_icons: ^1.0.2
   http: ^1.1.0
   async_wallpaper: ^2.0.3
   path_provider: ^2.1.1
-  url_launcher: ^6.2.1  # <-- ЭТО ВАЖНО, без этого код не соберется
+  url_launcher: ^6.2.1
   
   # Для иконок (обычно есть по умолчанию)
   cupertino_icons: ^1.0.2
