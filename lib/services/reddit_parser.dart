@@ -37,7 +37,8 @@ class RedditParser {
               mediaUrl = data['media']?['reddit_video']?['fallback_url'];
             } else if (data['url'] != null) {
               mediaUrl = data['url'];
-              if (mediaUrl.endsWith('.gif') || mediaUrl.endsWith('.gifv')) {
+              // ИСПРАВЛЕНО: проверка на null
+              if (mediaUrl != null && (mediaUrl.endsWith('.gif') || mediaUrl.endsWith('.gifv'))) {
                 isGif = true;
               }
             }
@@ -50,7 +51,7 @@ class RedditParser {
               title: data['title'] ?? 'No title',
               author: data['author'],
               mediaUrl: mediaUrl,
-              thumbnailUrl: thumbnailUrl != 'self' ? thumbnailUrl : null,
+              thumbnailUrl: thumbnailUrl != 'self' && thumbnailUrl != 'default' ? thumbnailUrl : null,
               isGif: isGif,
               isNsfw: data['over_18'] == true,
               createdAt: DateTime.fromMillisecondsSinceEpoch((data['created_utc'] as num).toInt() * 1000),
