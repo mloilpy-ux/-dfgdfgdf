@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
-import 'package:async_wallpaper/async_wallpaper.dart';
+import 'package:wallpaper_manager_plus/wallpaper_manager_plus.dart';
 import 'package:permission_handler/permission_handler.dart';
 import '../providers/content_provider.dart';
 import '../providers/source_provider.dart';
@@ -36,7 +36,6 @@ class _HomeScreenState extends State<HomeScreen> {
         elevation: 0,
         title: const Text('Furry Hub', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
         actions: [
-          // Фильтр типа контента
           PopupMenuButton<ContentType>(
             icon: const Icon(Icons.filter_alt, color: Colors.white),
             onSelected: (type) {
@@ -86,7 +85,6 @@ class _HomeScreenState extends State<HomeScreen> {
               ),
             ],
           ),
-          // Настройки
           IconButton(
             icon: const Icon(Icons.settings, color: Colors.white),
             onPressed: _showSettings,
@@ -95,19 +93,16 @@ class _HomeScreenState extends State<HomeScreen> {
       ),
       body: Consumer<ContentProvider>(
         builder: (context, provider, _) {
-          // Загрузка
           if (provider.isLoading && provider.filteredItems.isEmpty) {
             return const Center(
               child: CircularProgressIndicator(color: Colors.orange),
             );
           }
 
-          // Пустое состояние
           if (provider.filteredItems.isEmpty) {
             return _buildEmptyState(provider);
           }
 
-          // Проверка индекса
           if (_currentIndex >= provider.filteredItems.length) {
             WidgetsBinding.instance.addPostFrameCallback((_) {
               if (mounted) {
@@ -121,10 +116,7 @@ class _HomeScreenState extends State<HomeScreen> {
 
           return Column(
             children: [
-              // Индикатор прогресса
               _buildProgressIndicator(provider),
-              
-              // Основная картинка
               Expanded(
                 child: ContentCard(
                   key: ValueKey(item.id),
@@ -132,8 +124,6 @@ class _HomeScreenState extends State<HomeScreen> {
                   onTap: () => _showFullscreen(item),
                 ),
               ),
-              
-              // Кнопки управления
               _buildControlButtons(provider, item),
             ],
           );
@@ -265,7 +255,6 @@ class _HomeScreenState extends State<HomeScreen> {
       child: SafeArea(
         child: Row(
           children: [
-            // Кнопка: ДАЛЕЕ (пропустить)
             Expanded(
               child: _buildButton(
                 icon: Icons.skip_next,
@@ -277,7 +266,6 @@ class _HomeScreenState extends State<HomeScreen> {
             
             const SizedBox(width: 12),
             
-            // Кнопка: УСТАНОВИТЬ ОБОИ (только для картинок)
             if (showWallpaperButton) ...[
               Expanded(
                 child: _buildButton(
@@ -290,7 +278,6 @@ class _HomeScreenState extends State<HomeScreen> {
               const SizedBox(width: 12),
             ],
             
-            // Кнопка: СОХРАНИТЬ
             Expanded(
               child: _buildButton(
                 icon: Icons.favorite,
@@ -353,7 +340,7 @@ class _HomeScreenState extends State<HomeScreen> {
             children: [
               Icon(Icons.check_circle, color: Colors.white),
               SizedBox(width: 10),
-              Text('Сохранено!', style: TextStyle(fontWeight: FontWeight.bold)),
+              Text('💾 Сохранено!', style: TextStyle(fontWeight: FontWeight.bold)),
             ],
           ),
           backgroundColor: Colors.green[700],
@@ -379,13 +366,12 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Future<void> _setWallpaper(ContentItem item) async {
-    // Проверяем разрешения
     final status = await Permission.storage.request();
     if (!status.isGranted) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
-            content: Text('Требуется разрешение на доступ к хранилищу'),
+            content: Text('⚠️ Требуется разрешение на доступ к хранилищу'),
             backgroundColor: Colors.red,
           ),
         );
@@ -393,7 +379,6 @@ class _HomeScreenState extends State<HomeScreen> {
       return;
     }
 
-    // Показываем диалог выбора
     final location = await showDialog<int>(
       context: context,
       builder: (context) => AlertDialog(
@@ -452,7 +437,6 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Future<void> _applyWallpaper(ContentItem item, int location) async {
-    // Показываем загрузку
     showDialog(
       context: context,
       barrierDismissible: false,
@@ -479,48 +463,37 @@ class _HomeScreenState extends State<HomeScreen> {
     );
 
     try {
-      bool result = false;
+      int wallpaperLocation;
       
       switch (location) {
         case 1:
-          result = await AsyncWallpaper.setWallpaperFromUrl(
-            item.mediaUrl,
-            AsyncWallpaper.HOME_SCREEN,
-          );
+          wallpaperLocation = WallpaperManagerPlus.HOME_SCREEN;
           break;
         case 2:
-          result = await AsyncWallpaper.setWallpaperFromUrl(
-            item.mediaUrl,
-            AsyncWallpaper.LOCK_SCREEN,
-          );
+          wallpaperLocation = WallpaperManagerPlus.LOCK_SCREEN;
           break;
         case 3:
-          result = await AsyncWallpaper.setWallpaperFromUrl(
-            item.mediaUrl,
-            AsyncWallpaper.BOTH_SCREENS,
-          );
+          wallpaperLocation = WallpaperManagerPlus.BOTH_SCREENS;
           break;
+        default:
+          wallpaperLocation = WallpaperManagerPlus.HOME_SCREEN;
       }
 
+      await WallpaperManagerPlus().setWallpaper(item.mediaUrl, wallpaperLocation);
+      
       if (mounted) {
-        Navigator.pop(context); // Закрываем диалог загрузки
+        Navigator.pop(context);
         
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Row(
+            content: const Row(
               children: [
-                Icon(
-                  result ? Icons.check_circle : Icons.error,
-                  color: Colors.white,
-                ),
-                const SizedBox(width: 10),
-                Text(
-                  result ? 'Обои установлены!' : 'Ошибка установки обоев',
-                  style: const TextStyle(fontWeight: FontWeight.bold),
-                ),
+                Icon(Icons.check_circle, color: Colors.white),
+                SizedBox(width: 10),
+                Text('✅ Обои установлены!', style: TextStyle(fontWeight: FontWeight.bold)),
               ],
             ),
-            backgroundColor: result ? Colors.green[700] : Colors.red[700],
+            backgroundColor: Colors.green[700],
             duration: const Duration(seconds: 2),
             behavior: SnackBarBehavior.floating,
             shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
@@ -529,7 +502,7 @@ class _HomeScreenState extends State<HomeScreen> {
       }
     } catch (e) {
       if (mounted) {
-        Navigator.pop(context); // Закрываем диалог загрузки
+        Navigator.pop(context);
         
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
@@ -539,7 +512,7 @@ class _HomeScreenState extends State<HomeScreen> {
                 const SizedBox(width: 10),
                 Expanded(
                   child: Text(
-                    'Ошибка: ${e.toString()}',
+                    '❌ Ошибка: ${e.toString()}',
                     style: const TextStyle(fontWeight: FontWeight.bold),
                   ),
                 ),
@@ -576,7 +549,6 @@ class _HomeScreenState extends State<HomeScreen> {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            // Заголовок
             Container(
               width: 50,
               height: 5,
@@ -596,7 +568,6 @@ class _HomeScreenState extends State<HomeScreen> {
             ),
             const SizedBox(height: 20),
             
-            // NSFW фильтр
             Consumer<ContentProvider>(
               builder: (context, provider, _) => Container(
                 decoration: BoxDecoration(
@@ -622,7 +593,6 @@ class _HomeScreenState extends State<HomeScreen> {
             
             const SizedBox(height: 15),
             
-            // Сохранённые
             Container(
               decoration: BoxDecoration(
                 color: Colors.grey[850],
@@ -668,7 +638,6 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 }
 
-// Полноэкранный просмотр
 class FullscreenViewer extends StatelessWidget {
   final ContentItem item;
 
@@ -731,7 +700,6 @@ class FullscreenViewer extends StatelessWidget {
             ),
           ),
           
-          // Кнопка закрытия
           Positioned(
             top: 40,
             left: 10,
@@ -747,7 +715,6 @@ class FullscreenViewer extends StatelessWidget {
             ),
           ),
           
-          // Информация о картинке
           Positioned(
             bottom: 0,
             left: 0,
