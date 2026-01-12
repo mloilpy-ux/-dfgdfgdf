@@ -40,6 +40,9 @@ class MyApp extends StatelessWidget {
     return MaterialApp(
       title: 'Furry Content Hub',
       theme: furryTheme,
+      import 'package:provider/provider.dart';
+      import 'screens/home_screen.dart';  // Add this
+       // ... rest
       home: const HomeScreen(),
       debugShowCheckedModeBanner: false,
     );
