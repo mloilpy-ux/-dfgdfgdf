@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import 'package:async_wallpaper/async_wallpaper.dart';
+import 'package:permission_handler/permission_handler.dart';
 import '../providers/content_provider.dart';
 import '../providers/source_provider.dart';
 import '../widgets/content_card.dart';
@@ -32,8 +34,9 @@ class _HomeScreenState extends State<HomeScreen> {
       appBar: AppBar(
         backgroundColor: Colors.black,
         elevation: 0,
-        title: const Text('Furry Hub', style: TextStyle(color: Colors.white)),
+        title: const Text('Furry Hub', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
         actions: [
+          // Фильтр типа контента
           PopupMenuButton<ContentType>(
             icon: const Icon(Icons.filter_alt, color: Colors.white),
             onSelected: (type) {
@@ -41,12 +44,49 @@ class _HomeScreenState extends State<HomeScreen> {
               context.read<ContentProvider>().setContentType(type);
             },
             itemBuilder: (context) => const [
-              PopupMenuItem(value: ContentType.all, child: Text('Всё')),
-              PopupMenuItem(value: ContentType.images, child: Text('Картинки')),
-              PopupMenuItem(value: ContentType.gifs, child: Text('GIF')),
-              PopupMenuItem(value: ContentType.videos, child: Text('Видео')),
+              PopupMenuItem(
+                value: ContentType.all,
+                child: Row(
+                  children: [
+                    Icon(Icons.all_inclusive),
+                    SizedBox(width: 10),
+                    Text('Всё'),
+                  ],
+                ),
+              ),
+              PopupMenuItem(
+                value: ContentType.images,
+                child: Row(
+                  children: [
+                    Icon(Icons.image),
+                    SizedBox(width: 10),
+                    Text('Картинки'),
+                  ],
+                ),
+              ),
+              PopupMenuItem(
+                value: ContentType.gifs,
+                child: Row(
+                  children: [
+                    Icon(Icons.gif_box),
+                    SizedBox(width: 10),
+                    Text('GIF'),
+                  ],
+                ),
+              ),
+              PopupMenuItem(
+                value: ContentType.videos,
+                child: Row(
+                  children: [
+                    Icon(Icons.video_library),
+                    SizedBox(width: 10),
+                    Text('Видео'),
+                  ],
+                ),
+              ),
             ],
           ),
+          // Настройки
           IconButton(
             icon: const Icon(Icons.settings, color: Colors.white),
             onPressed: _showSettings,
@@ -55,18 +95,26 @@ class _HomeScreenState extends State<HomeScreen> {
       ),
       body: Consumer<ContentProvider>(
         builder: (context, provider, _) {
+          // Загрузка
           if (provider.isLoading && provider.filteredItems.isEmpty) {
             return const Center(
               child: CircularProgressIndicator(color: Colors.orange),
             );
           }
 
+          // Пустое состояние
           if (provider.filteredItems.isEmpty) {
             return _buildEmptyState(provider);
           }
 
+          // Проверка индекса
           if (_currentIndex >= provider.filteredItems.length) {
-            setState(() => _currentIndex = 0);
+            WidgetsBinding.instance.addPostFrameCallback((_) {
+              if (mounted) {
+                setState(() => _currentIndex = 0);
+              }
+            });
+            return const SizedBox.shrink();
           }
 
           final item = provider.filteredItems[_currentIndex];
@@ -79,6 +127,7 @@ class _HomeScreenState extends State<HomeScreen> {
               // Основная картинка
               Expanded(
                 child: ContentCard(
+                  key: ValueKey(item.id),
                   item: item,
                   onTap: () => _showFullscreen(item),
                 ),
@@ -98,24 +147,34 @@ class _HomeScreenState extends State<HomeScreen> {
     final current = _currentIndex + 1;
     
     return Container(
-      padding: const EdgeInsets.all(16),
+      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
       child: Row(
         children: [
           Expanded(
-            child: LinearProgressIndicator(
-              value: current / total,
-              backgroundColor: Colors.grey[800],
-              valueColor: const AlwaysStoppedAnimation<Color>(Colors.orange),
-              minHeight: 4,
+            child: ClipRRect(
+              borderRadius: BorderRadius.circular(10),
+              child: LinearProgressIndicator(
+                value: current / total,
+                backgroundColor: Colors.grey[800],
+                valueColor: const AlwaysStoppedAnimation<Color>(Colors.orange),
+                minHeight: 6,
+              ),
             ),
           ),
           const SizedBox(width: 16),
-          Text(
-            '$current / $total',
-            style: const TextStyle(
-              color: Colors.white,
-              fontWeight: FontWeight.bold,
-              fontSize: 16,
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+            decoration: BoxDecoration(
+              color: Colors.orange,
+              borderRadius: BorderRadius.circular(20),
+            ),
+            child: Text(
+              '$current / $total',
+              style: const TextStyle(
+                color: Colors.black,
+                fontWeight: FontWeight.bold,
+                fontSize: 14,
+              ),
             ),
           ),
         ],
@@ -125,73 +184,120 @@ class _HomeScreenState extends State<HomeScreen> {
 
   Widget _buildEmptyState(ContentProvider provider) {
     return Center(
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          const Icon(Icons.check_circle, size: 100, color: Colors.green),
-          const SizedBox(height: 20),
-          const Text(
-            'Весь контент просмотрен!',
-            style: TextStyle(fontSize: 24, color: Colors.white),
-          ),
-          const SizedBox(height: 30),
-          ElevatedButton.icon(
-            onPressed: () {
-              setState(() => _currentIndex = 0);
-              provider.loadNewContent();
-            },
-            icon: const Icon(Icons.refresh),
-            label: const Text('Обновить'),
-            style: ElevatedButton.styleFrom(
-              backgroundColor: Colors.orange,
-              padding: const EdgeInsets.symmetric(horizontal: 30, vertical: 15),
+      child: Padding(
+        padding: const EdgeInsets.all(40),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Container(
+              padding: const EdgeInsets.all(30),
+              decoration: BoxDecoration(
+                color: Colors.green.withOpacity(0.1),
+                shape: BoxShape.circle,
+              ),
+              child: const Icon(
+                Icons.check_circle,
+                size: 80,
+                color: Colors.green,
+              ),
             ),
-          ),
-        ],
+            const SizedBox(height: 30),
+            const Text(
+              'Весь контент просмотрен!',
+              style: TextStyle(
+                fontSize: 24,
+                color: Colors.white,
+                fontWeight: FontWeight.bold,
+              ),
+              textAlign: TextAlign.center,
+            ),
+            const SizedBox(height: 10),
+            Text(
+              'Подгружаем новые арты...',
+              style: TextStyle(
+                fontSize: 16,
+                color: Colors.grey[400],
+              ),
+            ),
+            const SizedBox(height: 40),
+            ElevatedButton.icon(
+              onPressed: () {
+                setState(() => _currentIndex = 0);
+                provider.loadNewContent();
+              },
+              icon: const Icon(Icons.refresh, size: 24),
+              label: const Text(
+                'Обновить контент',
+                style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+              ),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Colors.orange,
+                foregroundColor: Colors.black,
+                padding: const EdgeInsets.symmetric(horizontal: 40, vertical: 16),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(30),
+                ),
+                elevation: 5,
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }
 
   Widget _buildControlButtons(ContentProvider provider, ContentItem item) {
+    final isVideo = item.mediaUrl.contains('.mp4') || item.mediaUrl.contains('.webm');
+    final showWallpaperButton = !item.isGif && !isVideo;
+
     return Container(
-      padding: const EdgeInsets.all(20),
+      padding: const EdgeInsets.fromLTRB(16, 12, 16, 16),
       decoration: BoxDecoration(
         color: Colors.grey[900],
         boxShadow: [
           BoxShadow(
             color: Colors.black.withOpacity(0.5),
-            blurRadius: 10,
+            blurRadius: 15,
             offset: const Offset(0, -5),
           ),
         ],
       ),
       child: SafeArea(
         child: Row(
-          mainAxisAlignment: MainAxisAlignment.spaceEvenly,
           children: [
             // Кнопка: ДАЛЕЕ (пропустить)
-            _buildButton(
-              icon: Icons.skip_next,
-              label: 'Далее',
-              color: Colors.grey,
-              onPressed: () => _nextImage(provider, false),
+            Expanded(
+              child: _buildButton(
+                icon: Icons.skip_next,
+                label: 'Далее',
+                color: Colors.grey[700]!,
+                onPressed: () => _nextImage(provider, false),
+              ),
             ),
             
-            // Кнопка: УСТАНОВИТЬ ОБОИ
-            if (!item.isGif && !item.mediaUrl.contains('.mp4'))
-              _buildButton(
-                icon: Icons.wallpaper,
-                label: 'Обои',
-                color: Colors.blue,
-                onPressed: () => _setWallpaper(item),
+            const SizedBox(width: 12),
+            
+            // Кнопка: УСТАНОВИТЬ ОБОИ (только для картинок)
+            if (showWallpaperButton) ...[
+              Expanded(
+                child: _buildButton(
+                  icon: Icons.wallpaper,
+                  label: 'Обои',
+                  color: Colors.blue[700]!,
+                  onPressed: () => _setWallpaper(item),
+                ),
               ),
+              const SizedBox(width: 12),
+            ],
             
             // Кнопка: СОХРАНИТЬ
-            _buildButton(
-              icon: Icons.favorite,
-              label: 'Сохранить',
-              color: Colors.pink,
-              onPressed: () => _nextImage(provider, true),
+            Expanded(
+              child: _buildButton(
+                icon: Icons.favorite,
+                label: 'Сохранить',
+                color: Colors.pink[700]!,
+                onPressed: () => _nextImage(provider, true),
+              ),
             ),
           ],
         ),
@@ -205,30 +311,26 @@ class _HomeScreenState extends State<HomeScreen> {
     required Color color,
     required VoidCallback onPressed,
   }) {
-    return Expanded(
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 8),
-        child: ElevatedButton(
-          onPressed: onPressed,
-          style: ElevatedButton.styleFrom(
-            backgroundColor: color,
-            foregroundColor: Colors.white,
-            padding: const EdgeInsets.symmetric(vertical: 16),
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(12),
-            ),
-            elevation: 4,
-          ),
+    return Material(
+      color: color,
+      borderRadius: BorderRadius.circular(16),
+      elevation: 4,
+      child: InkWell(
+        onTap: onPressed,
+        borderRadius: BorderRadius.circular(16),
+        child: Container(
+          padding: const EdgeInsets.symmetric(vertical: 18),
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              Icon(icon, size: 28),
-              const SizedBox(height: 4),
+              Icon(icon, size: 32, color: Colors.white),
+              const SizedBox(height: 6),
               Text(
                 label,
                 style: const TextStyle(
-                  fontSize: 12,
+                  fontSize: 13,
                   fontWeight: FontWeight.bold,
+                  color: Colors.white,
                 ),
               ),
             ],
@@ -239,14 +341,25 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   void _nextImage(ContentProvider provider, bool save) {
+    if (_currentIndex >= provider.filteredItems.length) return;
+    
     final item = provider.filteredItems[_currentIndex];
 
     if (save) {
       provider.saveItem(item);
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('💾 Сохранено!'),
-          duration: Duration(seconds: 1),
+        SnackBar(
+          content: const Row(
+            children: [
+              Icon(Icons.check_circle, color: Colors.white),
+              SizedBox(width: 10),
+              Text('Сохранено!', style: TextStyle(fontWeight: FontWeight.bold)),
+            ],
+          ),
+          backgroundColor: Colors.green[700],
+          duration: const Duration(seconds: 1),
+          behavior: SnackBarBehavior.floating,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
         ),
       );
     } else {
@@ -265,160 +378,57 @@ class _HomeScreenState extends State<HomeScreen> {
     });
   }
 
-  void _setWallpaper(ContentItem item) async {
+  Future<void> _setWallpaper(ContentItem item) async {
+    // Проверяем разрешения
+    final status = await Permission.storage.request();
+    if (!status.isGranted) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Требуется разрешение на доступ к хранилищу'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+      return;
+    }
+
+    // Показываем диалог выбора
     final location = await showDialog<int>(
       context: context,
       builder: (context) => AlertDialog(
-        title: const Text('Установить обои'),
+        backgroundColor: Colors.grey[900],
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        title: const Text(
+          'Установить обои',
+          style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
+        ),
         content: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            ListTile(
-              leading: const Icon(Icons.home),
-              title: const Text('Главный экран'),
-              onTap: () => Navigator.pop(context, 1),
+            _buildWallpaperOption(
+              context: context,
+              icon: Icons.home,
+              title: 'Главный экран',
+              location: 1,
             ),
-            ListTile(
-              leading: const Icon(Icons.lock),
-              title: const Text('Экран блокировки'),
-              onTap: () => Navigator.pop(context, 2),
+            const Divider(color: Colors.grey),
+            _buildWallpaperOption(
+              context: context,
+              icon: Icons.lock,
+              title: 'Экран блокировки',
+              location: 2,
             ),
-            ListTile(
-              leading: const Icon(Icons.phone_android),
-              title: const Text('Оба экрана'),
-              onTap: () => Navigator.pop(context, 3),
-            ),
-          ],
-        ),
-      ),
-    );
-
-    if (location != null) {
-      _applyWallpaper(item, location);
-    }
-  }
-
-  void _applyWallpaper(ContentItem item, int location) async {
-    showDialog(
-      context: context,
-      barrierDismissible: false,
-      builder: (context) => const Center(
-        child: CircularProgressIndicator(color: Colors.orange),
-      ),
-    );
-
-    try {
-      final AsyncWallpaper = (await import('package:async_wallpaper/async_wallpaper.dart')).AsyncWallpaper;
-      
-      bool result = false;
-      switch (location) {
-        case 1:
-          result = await AsyncWallpaper.setWallpaperFromUrl(
-            item.mediaUrl,
-            AsyncWallpaper.HOME_SCREEN,
-          );
-          break;
-        case 2:
-          result = await AsyncWallpaper.setWallpaperFromUrl(
-            item.mediaUrl,
-            AsyncWallpaper.LOCK_SCREEN,
-          );
-          break;
-        case 3:
-          result = await AsyncWallpaper.setWallpaperFromUrl(
-            item.mediaUrl,
-            AsyncWallpaper.BOTH_SCREENS,
-          );
-          break;
-      }
-
-      Navigator.pop(context);
-      
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(result ? '✅ Обои установлены!' : '❌ Ошибка установки'),
-          backgroundColor: result ? Colors.green : Colors.red,
-        ),
-      );
-    } catch (e) {
-      Navigator.pop(context);
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('❌ Ошибка: $e'),
-          backgroundColor: Colors.red,
-        ),
-      );
-    }
-  }
-
-  void _showFullscreen(ContentItem item) {
-    Navigator.push(
-      context,
-      MaterialPageRoute(
-        builder: (_) => FullscreenViewer(item: item),
-      ),
-    );
-  }
-
-  void _showSettings() {
-    showModalBottomSheet(
-      context: context,
-      backgroundColor: Colors.grey[900],
-      builder: (context) => Padding(
-        padding: const EdgeInsets.all(20),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            const Text(
-              'Настройки',
-              style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: Colors.white),
-            ),
-            const SizedBox(height: 20),
-            Consumer<ContentProvider>(
-              builder: (context, provider, _) => SwitchListTile(
-                title: const Text('Показывать NSFW', style: TextStyle(color: Colors.white)),
-                subtitle: const Text('18+ контент', style: TextStyle(color: Colors.grey)),
-                value: provider.showNsfw,
-                onChanged: (value) => provider.toggleNsfwFilter(),
-                activeColor: Colors.orange,
-              ),
-            ),
-            ListTile(
-              leading: const Icon(Icons.collections, color: Colors.orange),
-              title: const Text('Сохранённые', style: TextStyle(color: Colors.white)),
-              trailing: Chip(
-                label: Text('${context.watch<ContentProvider>().savedItems.length}'),
-                backgroundColor: Colors.orange,
-              ),
-              onTap: () {
-                Navigator.pop(context);
-                Navigator.push(context, MaterialPageRoute(builder: (_) => const SavedScreen()));
-              },
+            const Divider(color: Colors.grey),
+            _buildWallpaperOption(
+              context: context,
+              icon: Icons.phone_android,
+              title: 'Оба экрана',
+              location: 3,
             ),
           ],
         ),
       ),
     );
-  }
-}
 
-// Полноэкранный просмотр
-class FullscreenViewer extends StatelessWidget {
-  final ContentItem item;
-
-  const FullscreenViewer({Key? key, required this.item}) : super(key: key);
-
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: Colors.black,
-      body: Stack(
-        children: [
-          Center(
-            child: InteractiveViewer(
-              child: Image.network(
-                item.mediaUrl,
-                fit: BoxFit.contain,
-                loadingBuilder: (context, child, loadingProgress) {
-                  if (loadingProgress == null) return child;
-                  return Ce
+    if (location != null && mounted)
