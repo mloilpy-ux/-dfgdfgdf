@@ -6,9 +6,10 @@ import 'package:http/http.dart' as http;
 import 'dart:convert';
 import 'package:async_wallpaper/async_wallpaper.dart';
 import 'package:path_provider/path_provider.dart';
-import 'package:url_launcher/url_launcher.dart'; // Добавить в pubspec.yaml
+import 'package:url_launcher/url_launcher.dart'; // Убедитесь, что этот пакет в pubspec.yaml
 
 void main() {
+  WidgetsFlutterBinding.ensureInitialized(); // Важно для инициализации каналов
   SystemChrome.setSystemUIOverlayStyle(const SystemUiOverlayStyle(
     statusBarColor: Colors.transparent,
     statusBarIconBrightness: Brightness.light,
@@ -44,54 +45,50 @@ class HomeScreen extends StatefulWidget {
 }
 
 class _HomeScreenState extends State<HomeScreen> {
-  // --- STATE ---
   String currentImageUrl = "";
   bool isLoading = false;
   List<String> imageQueue = [];
   String redditAfterToken = "";
   
-  // --- SETTINGS ---
-  bool allowNSFW = false; // Фильтр по умолчанию включен (SFW only)
-  List<String> customUrls = []; // Пользовательские ссылки
-
+  bool allowNSFW = false; 
+  List<String> customUrls = []; 
   String debugLog = "System initialized...";
 
   @override
   void initState() {
     super.initState();
-    // Сразу грузим первую пачку
     fetchBatchFromReddit();
   }
 
   void addToLog(String message) {
-    setState(() {
-      debugLog += "\n> $message";
-    });
+    // В релизе print может быть вырезан, но для дебага оставим
+    debugPrint(message); 
+    if (mounted) {
+      setState(() {
+        debugLog += "\n> $message";
+      });
+    }
   }
 
-  // --- LOGIC ---
-  
   void toggleNSFW(bool value) {
     setState(() {
       allowNSFW = value;
-      // При смене режима очищаем очередь, чтобы загрузить новый контент
       imageQueue.clear();
       redditAfterToken = "";
       currentImageUrl = ""; 
     });
     fetchBatchFromReddit();
     ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text(value ? "NSFW режим: ВКЛЮЧЕН (Осторожно!)" : "NSFW режим: ВЫКЛЮЧЕН (Safe Mode)"))
+      SnackBar(content: Text(value ? "NSFW режим: ВКЛЮЧЕН" : "NSFW режим: ВЫКЛЮЧЕН"))
     );
   }
 
   Future<void> fetchBatchFromReddit() async {
     addToLog("Fetching content (NSFW: $allowNSFW)...");
     try {
-      // Меняем источники в зависимости от режима
-      String sources = "furry+furryart"; // Базовые SFW
+      String sources = "furry+furryart"; 
       if (allowNSFW) {
-        sources += "+furry_irl+furrymemes+yiff"; // Добавляем перчинку
+        sources += "+furry_irl+furrymemes+yiff"; 
       }
 
       final url = 'https://www.reddit.com/r/$sources/hot.json?limit=40&after=$redditAfterToken';
@@ -112,8 +109,7 @@ class _HomeScreenState extends State<HomeScreen> {
           final u = postData['url'] as String;
           final bool isOver18 = postData['over_18'] ?? false;
 
-          // ГЛАВНЫЙ ФИЛЬТР
-          if (!allowNSFW && isOver18) continue; // Пропускаем NSFW если режим выключен
+          if (!allowNSFW && isOver18) continue; 
 
           if (u.contains('i.redd.it') && 
              (u.endsWith('.jpg') || u.endsWith('.png') || u.endsWith('.jpeg'))) {
@@ -124,20 +120,12 @@ class _HomeScreenState extends State<HomeScreen> {
           }
         }
         
-        // Подмешиваем кастомные ссылки пользователя (если есть)
         if (customUrls.isNotEmpty) {
-           imageQueue.insertAll(0, customUrls); // Ставим их в начало
-           addToLog("Mixed in ${customUrls.length} custom user links");
+           imageQueue.insertAll(0, customUrls); 
         }
 
         addToLog("Loaded +$count suitable images.");
-        // Если ничего не загрузилось и очередь пуста (из-за фильтров)
-        if (imageQueue.isEmpty && count == 0) {
-           addToLog("No images found with current filter. Retrying...");
-           fetchBatchFromReddit(); // Рекурсия (опасно, но для примера пойдет)
-        }
         
-        // Если это первый запуск, сразу показываем
         if (currentImageUrl.isEmpty && imageQueue.isNotEmpty) {
           showNextImage();
         }
@@ -156,9 +144,8 @@ class _HomeScreenState extends State<HomeScreen> {
     }
 
     if (imageQueue.isNotEmpty) {
-      // Перемешиваем немного для разнообразия, если это Reddit
       if (imageQueue.length > 5) {
-        int index = Random().nextInt(3); // Берем одну из первых 3
+        int index = Random().nextInt(3); 
         final next = imageQueue.removeAt(index);
         setState(() => currentImageUrl = next);
       } else {
@@ -168,9 +155,10 @@ class _HomeScreenState extends State<HomeScreen> {
     }
   }
 
-  // Диалог добавления кастомной ссылки
   void _showAddCustomLinkDialog() {
-    TextEditingController _urlController = TextEditingController();
+    // Контроллер создаем локально
+    final TextEditingController urlController = TextEditingController();
+    
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
@@ -178,10 +166,10 @@ class _HomeScreenState extends State<HomeScreen> {
         content: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            const Text("Вставьте прямую ссылку на картинку (Twitter/Telegram требуют Web-граббера, но пока можно прямые ссылки):", style: TextStyle(fontSize: 12, color: Colors.white60)),
+            const Text("Вставьте прямую ссылку:", style: TextStyle(fontSize: 12, color: Colors.white60)),
             const SizedBox(height: 10),
             TextField(
-              controller: _urlController,
+              controller: urlController,
               decoration: const InputDecoration(
                 hintText: "https://example.com/image.jpg",
                 border: OutlineInputBorder(),
@@ -195,12 +183,12 @@ class _HomeScreenState extends State<HomeScreen> {
                 TextButton.icon(
                   icon: const Icon(Icons.public),
                   label: const Text("Twitter"),
-                  onPressed: () => launchUrl(Uri.parse("https://twitter.com")), // Открыть браузер
+                  onPressed: () => _launchExternal("https://twitter.com"), 
                 ),
                 TextButton.icon(
                   icon: const Icon(Icons.send),
                   label: const Text("TG Web"),
-                  onPressed: () => launchUrl(Uri.parse("https://web.telegram.org")), // Открыть браузер
+                  onPressed: () => _launchExternal("https://web.telegram.org"), 
                 ),
               ],
             )
@@ -210,11 +198,11 @@ class _HomeScreenState extends State<HomeScreen> {
           TextButton(onPressed: () => Navigator.pop(context), child: const Text("Отмена")),
           FilledButton(
             onPressed: () {
-              if (_urlController.text.isNotEmpty) {
+              if (urlController.text.isNotEmpty) {
                 setState(() {
-                  customUrls.add(_urlController.text);
-                  imageQueue.insert(0, _urlController.text); // Добавляем в начало очереди
-                  currentImageUrl = _urlController.text; // Сразу показываем
+                  customUrls.add(urlController.text);
+                  imageQueue.insert(0, urlController.text); 
+                  currentImageUrl = urlController.text; 
                 });
                 Navigator.pop(context);
                 ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Ссылка добавлена!")));
@@ -227,32 +215,40 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
+  // Безопасный запуск URL
+  Future<void> _launchExternal(String url) async {
+    final uri = Uri.parse(url);
+    if (await canLaunchUrl(uri)) {
+      await launchUrl(uri, mode: LaunchMode.externalApplication);
+    } else {
+      addToLog("Could not launch $url");
+    }
+  }
+
   Future<void> setWallpaper() async {
     if (currentImageUrl.isEmpty) return;
     try {
-      // Скачиваем
       final response = await http.get(Uri.parse(currentImageUrl));
       final dir = await getTemporaryDirectory();
       final file = File('${dir.path}/wall_temp.jpg');
       await file.writeAsBytes(response.bodyBytes);
       
-      // Ставим
       await AsyncWallpaper.setWallpaperFromFile(
         filePath: file.path,
         wallpaperLocation: AsyncWallpaper.BOTH_SCREENS,
         goToHome: true,
       );
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Обои установлены!")));
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Обои установлены!")));
+      }
     } catch (e) {
       addToLog("Wall Err: $e");
     }
   }
 
-  // --- UI ---
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      // Сайдбар (Drawer) для настроек
       drawer: Drawer(
         backgroundColor: const Color(0xFF161622),
         child: ListView(
@@ -278,7 +274,6 @@ class _HomeScreenState extends State<HomeScreen> {
             ListTile(
               leading: const Icon(Icons.add_link),
               title: const Text("Добавить ссылку"),
-              subtitle: const Text("Twitter / Telegram / Web"),
               onTap: () {
                 Navigator.pop(context);
                 _showAddCustomLinkDialog();
@@ -302,7 +297,6 @@ class _HomeScreenState extends State<HomeScreen> {
       
       body: Stack(
         children: [
-          // Background
           if (currentImageUrl.isNotEmpty)
             Positioned.fill(
               child: Image.network(
@@ -316,7 +310,6 @@ class _HomeScreenState extends State<HomeScreen> {
           SafeArea(
             child: Column(
               children: [
-                // AppBar Custom
                 Padding(
                   padding: const EdgeInsets.all(8.0),
                   child: Row(
@@ -339,12 +332,11 @@ class _HomeScreenState extends State<HomeScreen> {
                   ),
                 ),
 
-                // Image Card
                 Expanded(
                   child: Padding(
                     padding: const EdgeInsets.symmetric(horizontal: 16),
                     child: GestureDetector(
-                      onTap: showNextImage, // Тап по картинке = след.
+                      onTap: showNextImage, 
                       child: Card(
                         elevation: 10,
                         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
@@ -363,7 +355,6 @@ class _HomeScreenState extends State<HomeScreen> {
                             else 
                               const Center(child: Icon(Icons.downloading, size: 50)),
                               
-                            // NSFW Badge
                             if (allowNSFW)
                               const Positioned(
                                 top: 10, right: 10,
@@ -376,7 +367,6 @@ class _HomeScreenState extends State<HomeScreen> {
                   ),
                 ),
 
-                // Buttons
                 Container(
                   padding: const EdgeInsets.all(24),
                   child: Row(
