@@ -4,18 +4,19 @@ publish_to: 'none'
 version: 1.0.0+1
 
 environment:
-  sdk: '>=3.0.0 <4.0.0' # Обновим min SDK, раз уж обновляем зависимости
+  sdk: '>=3.0.0 <4.0.0'
 
 dependencies:
   flutter:
     sdk: flutter
   
-  # Пакеты (только по одному разу!)
+  # Core dependencies
   cupertino_icons: ^1.0.2
   http: ^1.1.0
   async_wallpaper: ^2.0.3
   path_provider: ^2.1.1
   url_launcher: ^6.2.1
+  xml: ^6.5.0
 
 dev_dependencies:
   flutter_test:
