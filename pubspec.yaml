@@ -1,7 +1,21 @@
+name: lunya
+description: Lunya Hub 6.2 - Furry Content Aggregator
+publish_to: 'none'
+version: 1.0.0+1
+
+environment:
+  sdk: '>=3.0.0 <4.0.0'
+
 dependencies:
   flutter:
     sdk: flutter
+  cupertino_icons: ^1.0.2
   http: ^1.1.0
+  async_wallpaper: ^2.0.3
   path_provider: ^2.1.1
   url_launcher: ^6.2.1
-  # share_plus: ^7.0.0 # Рекомендую добавить для шеринга, но код будет работать и без него
+  shared_preferences: ^2.2.2 
+  cached_network_image: ^3.3.0
+
+flutter:
+  uses-material-design: true
