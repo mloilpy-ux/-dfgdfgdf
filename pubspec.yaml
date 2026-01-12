@@ -1,7 +1,7 @@
-name: lunya
-description: A new Flutter project.
+name: lunya_hub
+description: Ultimate Furry Content Aggregator
 publish_to: 'none'
-version: 1.0.0+1
+version: 7.0.0+1
 
 environment:
   sdk: '>=3.0.0 <4.0.0'
@@ -9,14 +9,19 @@ environment:
 dependencies:
   flutter:
     sdk: flutter
-  
-  # Core dependencies
-  cupertino_icons: ^1.0.2
+  # State Management
+  provider: ^6.1.1
+  # Networking
   http: ^1.1.0
-  async_wallpaper: ^2.0.3
+  # Storage
+  shared_preferences: ^2.2.2
   path_provider: ^2.1.1
+  # UI Utilities
+  cached_network_image: ^3.3.1
   url_launcher: ^6.2.1
-  xml: ^6.5.0
+  # Icons
+  cupertino_icons: ^1.0.6
+  font_awesome_flutter: ^10.7.0
 
 dev_dependencies:
   flutter_test:
