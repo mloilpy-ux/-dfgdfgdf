@@ -10,7 +10,6 @@ android {
     ndkVersion = flutter.ndkVersion
 
     compileOptions {
-        // Обновлено до Java 17 (стандарт для новых Gradle)
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
     }
@@ -21,8 +20,7 @@ android {
 
     defaultConfig {
         applicationId = "com.example.lunya"
-        // Явно ставим 21, чтобы избежать конфликтов с url_launcher/async_wallpaper
-        minSdk = 21 
+        minSdk = 21 // Явно указываем 21 для совместимости
         targetSdk = flutter.targetSdkVersion
         versionCode = flutter.versionCode
         versionName = flutter.versionName
@@ -30,12 +28,23 @@ android {
 
     buildTypes {
         release {
-            // Отключаем сжатие, чтобы избежать ошибок R8/Proguard
             isMinifyEnabled = false
             isShrinkResources = false
-            
-            // Используем debug ключ для быстрой проверки релиза
+            // Временная подпись debug-ключом для теста
             signingConfig = signingConfigs.getByName("debug")
+            proguardFiles(
+                getDefaultProguardFile("proguard-android-optimize.txt"),
+                "proguard-rules.pro"
+            )
+        }
+    }
+    
+    // ВАЖНО: Принудительное использование стабильных версий библиотек
+    configurations.all {
+        resolutionStrategy {
+            force("androidx.browser:browser:1.8.0")
+            force("androidx.core:core:1.15.0")
+            force("androidx.core:core-ktx:1.15.0")
         }
     }
 }
