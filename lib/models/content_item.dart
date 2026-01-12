@@ -18,8 +18,8 @@ class ContentItem {
     this.author,
     required this.mediaUrl,
     this.thumbnailUrl,
-    this.isGif = false,
-    this.isNsfw = false,
+    required this.isGif,
+    required this.isNsfw,
     required this.createdAt,
     this.isSaved = false,
     this.postUrl,
@@ -43,17 +43,17 @@ class ContentItem {
 
   factory ContentItem.fromMap(Map<String, dynamic> map) {
     return ContentItem(
-      id: map['id'],
-      sourceId: map['sourceId'],
-      title: map['title'],
-      author: map['author'],
-      mediaUrl: map['mediaUrl'],
-      thumbnailUrl: map['thumbnailUrl'],
-      isGif: map['isGif'] == 1,
-      isNsfw: map['isNsfw'] == 1,
-      createdAt: DateTime.parse(map['createdAt']),
-      isSaved: map['isSaved'] == 1,
-      postUrl: map['postUrl'],
+      id: map['id'] as String,
+      sourceId: map['sourceId'] as String,
+      title: map['title'] as String,
+      author: map['author'] as String?,
+      mediaUrl: map['mediaUrl'] as String,
+      thumbnailUrl: map['thumbnailUrl'] as String?,
+      isGif: (map['isGif'] as int) == 1,
+      isNsfw: (map['isNsfw'] as int) == 1,
+      createdAt: DateTime.parse(map['createdAt'] as String),
+      isSaved: (map['isSaved'] as int) == 1,
+      postUrl: map['postUrl'] as String?,
     );
   }
 }
