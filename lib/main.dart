@@ -7,18 +7,17 @@ import 'providers/content_provider.dart';
 import 'providers/sources_provider.dart';
 import 'providers/settings_provider.dart';
 import 'providers/logger_provider.dart';
-import 'screens/home_screen.dart';
+import 'screens/main_screen.dart';
 import 'theme.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  
   await Hive.initFlutter();
-  Hive.registerAdapter(ContentItemAdapter());
-  Hive.registerAdapter(ContentSourceAdapter());
-  Hive.registerAdapter(SourceTypeAdapter());
-  await Hive.openBox<ContentItem>('contents');
-  await Hive.openBox<ContentSource>('sources');
-  await Hive.openBox<String>('seen');
+  // Регистрация адаптеров (требует генерации через build_runner)
+  // Hive.registerAdapter(ContentItemAdapter());
+  // Hive.registerAdapter(ContentSourceAdapter());
+  
   runApp(
     MultiProvider(
       providers: [
@@ -40,10 +39,7 @@ class MyApp extends StatelessWidget {
     return MaterialApp(
       title: 'Furry Content Hub',
       theme: furryTheme,
-      import 'package:provider/provider.dart';
-      import 'screens/home_screen.dart';  // Add this
-       // ... rest
-      home: const HomeScreen(),
+      home: const MainScreen(),
       debugShowCheckedModeBanner: false,
     );
   }
