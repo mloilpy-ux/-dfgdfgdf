@@ -1,10 +1,7 @@
 import 'package:flutter/foundation.dart';
-import 'package:hive/hive.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 class SettingsProvider with ChangeNotifier {
-  static const String _boxName = 'settings';
-  late Box _box;
-
   bool _showNsfw = false;
   bool _initialized = false;
 
@@ -16,15 +13,16 @@ class SettingsProvider with ChangeNotifier {
   }
 
   Future<void> _init() async {
-    _box = await Hive.openBox(_boxName);
-    _showNsfw = _box.get('showNsfw', defaultValue: false);
+    final prefs = await SharedPreferences.getInstance();
+    _showNsfw = prefs.getBool('showNsfw') ?? false;
     _initialized = true;
     notifyListeners();
   }
 
   Future<void> toggleNsfw() async {
     _showNsfw = !_showNsfw;
-    await _box.put('showNsfw', _showNsfw);
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool('showNsfw', _showNsfw);
     notifyListeners();
   }
 }
