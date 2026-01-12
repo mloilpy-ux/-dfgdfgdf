@@ -5,46 +5,30 @@ plugins {
 }
 
 android {
-    namespace = "com.example.lunya"
-    compileSdk = flutter.compileSdkVersion
-    ndkVersion = flutter.ndkVersion
+    namespace = "com.example.furry_content_hub"
+    compileSdk = 34
+    ndkVersion = "25.1.8937393"
 
     compileOptions {
-        sourceCompatibility = JavaVersion.VERSION_17
-        targetCompatibility = JavaVersion.VERSION_17
+        sourceCompatibility = JavaVersion.VERSION_1_8
+        targetCompatibility = JavaVersion.VERSION_1_8
     }
 
     kotlinOptions {
-        jvmTarget = JavaVersion.VERSION_17.toString()
+        jvmTarget = "1.8"
     }
 
     defaultConfig {
-        applicationId = "com.example.lunya"
-        minSdk = 21 // Явно указываем 21 для совместимости
-        targetSdk = flutter.targetSdkVersion
-        versionCode = flutter.versionCode
-        versionName = flutter.versionName
+        applicationId = "com.example.furry_content_hub"
+        minSdk = 21
+        targetSdk = 34
+        versionCode = 1
+        versionName = "1.0"
     }
 
     buildTypes {
         release {
-            isMinifyEnabled = false
-            isShrinkResources = false
-            // Временная подпись debug-ключом для теста
             signingConfig = signingConfigs.getByName("debug")
-            proguardFiles(
-                getDefaultProguardFile("proguard-android-optimize.txt"),
-                "proguard-rules.pro"
-            )
-        }
-    }
-    
-    // ВАЖНО: Принудительное использование стабильных версий библиотек
-    configurations.all {
-        resolutionStrategy {
-            force("androidx.browser:browser:1.8.0")
-            force("androidx.core:core:1.15.0")
-            force("androidx.core:core-ktx:1.15.0")
         }
     }
 }
