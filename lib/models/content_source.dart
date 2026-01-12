@@ -1,11 +1,9 @@
-enum SourceType { reddit, twitter, telegram }
-
 class ContentSource {
   final String id;
   final String name;
   final String url;
   final SourceType type;
-  bool isActive;
+  final bool isActive;
   final DateTime addedAt;
 
   ContentSource({
@@ -13,16 +11,17 @@ class ContentSource {
     required this.name,
     required this.url,
     required this.type,
-    this.isActive = true,
+    bool? isActive,
     DateTime? addedAt,
-  }) : addedAt = addedAt ?? DateTime.now();
+  })  : isActive = isActive ?? true,
+        addedAt = addedAt ?? DateTime.now();
 
   Map<String, dynamic> toMap() {
     return {
       'id': id,
       'name': name,
       'url': url,
-      'type': type.toString(),
+      'type': type.name,
       'isActive': isActive ? 1 : 0,
       'addedAt': addedAt.toIso8601String(),
     };
@@ -30,14 +29,39 @@ class ContentSource {
 
   factory ContentSource.fromMap(Map<String, dynamic> map) {
     return ContentSource(
-      id: map['id'],
-      name: map['name'],
-      url: map['url'],
+      id: map['id'] as String,
+      name: map['name'] as String,
+      url: map['url'] as String,
       type: SourceType.values.firstWhere(
-        (e) => e.toString() == map['type'],
+        (e) => e.name == map['type'],
+        orElse: () => SourceType.reddit,
       ),
-      isActive: map['isActive'] == 1,
-      addedAt: DateTime.parse(map['addedAt']),
+      isActive: (map['isActive'] as int) == 1,
+      addedAt: DateTime.parse(map['addedAt'] as String),
     );
   }
+
+  ContentSource copyWith({
+    String? id,
+    String? name,
+    String? url,
+    SourceType? type,
+    bool? isActive,
+    DateTime? addedAt,
+  }) {
+    return ContentSource(
+      id: id ?? this.id,
+      name: name ?? this.name,
+      url: url ?? this.url,
+      type: type ?? this.type,
+      isActive: isActive ?? this.isActive,
+      addedAt: addedAt ?? this.addedAt,
+    );
+  }
+}
+
+enum SourceType {
+  reddit,
+  twitter,
+  telegram,
 }
