@@ -16,16 +16,14 @@ enum SourceType { reddit, telegram, twitter, custom }
 
 class MediaItem {
   final String url;
-  final String thumbnailUrl; // Для превью видео
   final ContentType type;
   final String sourceName;
-  final bool isNSFW;
+  final bool isNSFW; // Флаг контента
 
   MediaItem({
     required this.url,
     required this.type,
     required this.sourceName,
-    this.thumbnailUrl = '',
     this.isNSFW = false,
   });
 }
@@ -33,10 +31,10 @@ class MediaItem {
 class ContentSource {
   String id;
   String name;
-  String url; // Реальный URL для парсинга
+  String url; 
   SourceType type;
   bool isActive;
-  bool isNSFW;
+  bool isNSFW; // Флаг источника
 
   ContentSource({
     required this.id,
@@ -48,7 +46,7 @@ class ContentSource {
   });
 }
 
-// --- 2. UTILS & LOGGER ---
+// --- 2. LOGGER ---
 
 class AppLogger {
   static final List<String> logs = [];
@@ -58,38 +56,38 @@ class AppLogger {
   static void log(String tag, String msg) {
     final t = DateTime.now().toIso8601String().substring(11, 19);
     final entry = "[$t] [$tag] $msg";
-    print(entry); // Console
+    print(entry); 
     logs.add(entry);
     if (logs.length > 500) logs.removeAt(0);
     _controller.add(List.from(logs));
   }
 }
 
-// "Furry phrases" generator
-String getLoadingPhrase() {
-  const phrases = [
-    "Polishing beans...",
-    "Wagging tail...",
-    "Fetching art...",
-    "Booping snoots...",
-    "Loading fluff...",
-    "Searching for cuties...",
-    "OwO what's this? Loading...",
-  ];
-  return phrases[Random().nextInt(phrases.length)];
-}
-
-// --- 3. UNIVERSAL SCRAPER ENGINE ---
+// --- 3. SCRAPER ENGINE (С УЛУЧШЕННОЙ ФИЛЬТРАЦИЕЙ) ---
 
 class ScraperEngine {
-  static const String _userAgent = "Mozilla/5.0 (compatible; LunyaHub/6.0; +http://lunya.app)";
+  static const String _userAgent = "Mozilla/5.0 (compatible; LunyaHub/6.1; +http://lunya.app)";
+
+  // Ключевые слова для детекта NSFW в URL (для не-Reddit источников)
+  static const List<String> _nsfwKeywords = ['nsfw', 'yiff', 'xxx', 'porn', '18+', 'adult'];
+
+  static bool _detectNSFW(String url, ContentSource source) {
+    // 1. Если сам источник помечен как NSFW -> весь контент NSFW
+    if (source.isNSFW) return true;
+    
+    // 2. Эвристика по URL (для Telegram/Web)
+    final lowerUrl = url.toLowerCase();
+    for (var word in _nsfwKeywords) {
+      if (lowerUrl.contains(word)) return true;
+    }
+    return false;
+  }
 
   static Future<List<MediaItem>> scrape(ContentSource source) async {
     try {
       if (source.type == SourceType.reddit) {
         return _parseRedditJson(source);
       } else {
-        // Universal HTML Parser for TG Web, Nitter, etc.
         return _parseHtml(source);
       }
     } catch (e) {
@@ -99,7 +97,6 @@ class ScraperEngine {
   }
 
   static Future<List<MediaItem>> _parseRedditJson(ContentSource source) async {
-    // Reddit JSON API is cleaner than HTML scraping
     final url = source.url.endsWith('.json') ? source.url : '${source.url}/hot.json?limit=25';
     AppLogger.log("NET", "GET JSON: $url");
     
@@ -113,10 +110,10 @@ class ScraperEngine {
     for (var child in children) {
       final d = child['data'];
       final String u = d['url'];
-      final bool over18 = d['over_18'] ?? false;
+      final bool over18 = d['over_18'] ?? false; // Reddit flag
       
-      // NSFW Check at item level
-      final bool itemIsNSFW = source.isNSFW || over18;
+      // NSFW Logic: Source flag OR Post flag
+      final bool isItemNSFW = source.isNSFW || over18;
 
       ContentType type = ContentType.image;
       if (u.contains('.gif') || u.contains('.mp4') || d['is_video'] == true) {
@@ -124,19 +121,13 @@ class ScraperEngine {
       }
 
       if (u.contains('i.redd.it') || u.contains('v.redd.it') || u.contains('imgur')) {
-        items.add(MediaItem(
-          url: u, 
-          type: type, 
-          sourceName: source.name,
-          isNSFW: itemIsNSFW
-        ));
+        items.add(MediaItem(url: u, type: type, sourceName: source.name, isNSFW: isItemNSFW));
       }
     }
     return items;
   }
 
   static Future<List<MediaItem>> _parseHtml(ContentSource source) async {
-    // Powerful Regex-based HTML scraper for TG Web / Nitter
     AppLogger.log("NET", "GET HTML: ${source.url}");
     final resp = await http.get(Uri.parse(source.url), headers: {'User-Agent': _userAgent});
     if (resp.statusCode != 200) throw Exception("HTTP ${resp.statusCode}");
@@ -144,25 +135,18 @@ class ScraperEngine {
     final html = resp.body;
     List<MediaItem> items = [];
 
-    // 1. Find Images (CSS background or img src)
-    // Telegram Web uses background-image:url('...')
     final bgImgRegex = RegExp(r"background-image:url\('([^']+)'\)");
     final imgTagRegex = RegExp(r'<img[^>]+src="([^">]+)"');
-    
-    // 2. Find Videos/GIFs
     final videoTagRegex = RegExp(r'<video[^>]+src="([^">]+)"');
 
-    // Parse Images
     for (var m in bgImgRegex.allMatches(html)) {
       _addItem(items, m.group(1), ContentType.image, source);
     }
     for (var m in imgTagRegex.allMatches(html)) {
       _addItem(items, m.group(1), ContentType.image, source);
     }
-
-    // Parse Videos
     for (var m in videoTagRegex.allMatches(html)) {
-      _addItem(items, m.group(1), ContentType.gif, source); // Treat short videos as gifs
+      _addItem(items, m.group(1), ContentType.gif, source); 
     }
 
     AppLogger.log("SCRAPER", "Found ${items.length} items in HTML");
@@ -171,17 +155,14 @@ class ScraperEngine {
 
   static void _addItem(List<MediaItem> list, String? url, ContentType type, ContentSource source) {
     if (url == null) return;
-    if (url.startsWith('//')) url = 'https:$url'; // Fix relative protocol
-    if (url.contains('emoji') || url.contains('icon') || url.contains('logo')) return; // Filter junk
+    if (url.startsWith('//')) url = 'https:$url'; 
+    if (url.contains('emoji') || url.contains('icon') || url.contains('logo')) return; 
     
-    // Basic dup check
+    // Auto-detect NSFW for web links
+    final bool isItemNSFW = _detectNSFW(url, source);
+
     if (!list.any((i) => i.url == url)) {
-      list.add(MediaItem(
-        url: url, 
-        type: type, 
-        sourceName: source.name,
-        isNSFW: source.isNSFW
-      ));
+      list.add(MediaItem(url: url, type: type, sourceName: source.name, isNSFW: isItemNSFW));
     }
   }
 }
@@ -190,7 +171,6 @@ class ScraperEngine {
 
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
-  // Translucent system bars for edge-to-edge look
   SystemChrome.setSystemUIOverlayStyle(const SystemUiOverlayStyle(
     statusBarColor: Colors.transparent,
     systemNavigationBarColor: Colors.transparent, 
@@ -206,20 +186,15 @@ class LunyaApp extends StatelessWidget {
   Widget build(BuildContext context) {
     return MaterialApp(
       debugShowCheckedModeBanner: false,
-      title: 'Lunya Hub 6.0',
-      // Strict Dark Theme
+      title: 'Lunya Hub 6.1',
       theme: ThemeData.dark(useMaterial3: true).copyWith(
         scaffoldBackgroundColor: const Color(0xFF000000),
         colorScheme: const ColorScheme.dark(
-          primary: Color(0xFF7C4DFF), // Deep Purple Accent
-          secondary: Color(0xFF64FFDA), // Teal Accent
+          primary: Color(0xFF7C4DFF), 
+          secondary: Color(0xFF64FFDA), 
           surface: Color(0xFF121212),
         ),
-        appBarTheme: const AppBarTheme(
-          backgroundColor: Colors.transparent,
-          elevation: 0,
-          centerTitle: true,
-        ),
+        appBarTheme: const AppBarTheme(backgroundColor: Colors.transparent, elevation: 0),
       ),
       home: const MainScreen(),
     );
@@ -235,54 +210,55 @@ class MainScreen extends StatefulWidget {
 class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin {
   late TabController _tabController;
   
-  // Data
   List<MediaItem> _imgQueue = [];
   List<MediaItem> _gifQueue = [];
   MediaItem? _currentImg;
   MediaItem? _currentGif;
   
-  // Settings
   bool _isLoading = false;
-  bool _allowNSFW = false; 
+  bool _allowNSFW = false; // Глобальный переключатель (по умолчанию выключен)
   String _loadingText = "Initializing...";
 
-  // Sources (Mixed: Reddit + Web Parsing)
   List<ContentSource> sources = [
     ContentSource(id: 'r1', name: 'r/Furry', url: 'https://www.reddit.com/r/furry', type: SourceType.reddit),
     ContentSource(id: 'r2', name: 'r/FurryArt', url: 'https://www.reddit.com/r/furryart', type: SourceType.reddit),
-    // TG Web example (using /s/ preview)
     ContentSource(id: 'tg1', name: 'TG: Furry Archive', url: 'https://t.me/s/furry_art_archive', type: SourceType.telegram),
-    // NSFW Sources (Disabled by default)
-    ContentSource(id: 'r3', name: 'r/Yiff', url: 'https://www.reddit.com/r/yiff', type: SourceType.reddit, isNSFW: true, isActive: false),
+    // NSFW Source (маркирован флагом isNSFW: true)
+    ContentSource(id: 'r3', name: 'r/Yiff', url: 'https://www.reddit.com/r/yiff', type: SourceType.reddit, isNSFW: true, isActive: true),
   ];
 
   @override
   void initState() {
     super.initState();
     _tabController = TabController(length: 2, vsync: this);
-    AppLogger.log("SYS", "Lunya Hub 6.0 Started");
+    AppLogger.log("SYS", "Lunya Hub 6.1 Started");
     _fetchBatch();
   }
 
-  // --- LOGIC ---
+  // --- MAIN FETCH LOGIC ---
 
   Future<void> _fetchBatch() async {
     if (_isLoading) return;
     setState(() {
       _isLoading = true;
-      _loadingText = getLoadingPhrase();
+      _loadingText = "Scanning sources...";
     });
 
-    final active = sources.where((s) => s.isActive && (s.isNSFW == false || _allowNSFW == true)).toList();
+    // 1. Фильтруем ИСТОЧНИКИ
+    final activeSources = sources.where((s) {
+      if (!s.isActive) return false;
+      // Если глобальный NSFW выключен, а источник помечен как NSFW - пропускаем его полностью
+      if (!_allowNSFW && s.isNSFW) return false;
+      return true;
+    }).toList();
     
-    if (active.isEmpty) {
-      _showToast("No active sources! Check settings.");
+    if (activeSources.isEmpty) {
+      _showToast("No active SFW sources. Check settings.");
       setState(() => _isLoading = false);
       return;
     }
 
-    // Pick random source
-    final source = active[Random().nextInt(active.length)];
+    final source = activeSources[Random().nextInt(activeSources.length)];
     AppLogger.log("CORE", "Fetching from ${source.name}...");
 
     final newItems = await ScraperEngine.scrape(source);
@@ -290,24 +266,30 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin {
     if (newItems.isNotEmpty) {
       newItems.shuffle();
       setState(() {
+        int addedCount = 0;
         for (var item in newItems) {
-          // Global NSFW Filter Logic:
-          // If NSFW is OFF, we strictly skip any item marked NSFW
-          if (!_allowNSFW && item.isNSFW) continue;
+          // 2. Глобальная фильтрация КОНТЕНТА
+          // Если NSFW выключен, а у картинки (даже из SFW источника) есть маркер - скипаем
+          if (!_allowNSFW && item.isNSFW) {
+             AppLogger.log("FILTER", "Blocked NSFW item: ${item.url}");
+             continue; 
+          }
 
           if (item.type == ContentType.image) {
             _imgQueue.add(item);
           } else {
             _gifQueue.add(item);
           }
+          addedCount++;
         }
         
-        // Auto-fill current if empty
+        if (addedCount == 0) {
+           AppLogger.log("CORE", "All items filtered out (SFW Mode)");
+        }
+
         if (_currentImg == null && _imgQueue.isNotEmpty) _currentImg = _imgQueue.removeAt(0);
         if (_currentGif == null && _gifQueue.isNotEmpty) _currentGif = _gifQueue.removeAt(0);
       });
-    } else {
-      AppLogger.log("CORE", "Source returned 0 valid items.");
     }
 
     setState(() => _isLoading = false);
@@ -338,14 +320,11 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin {
     _showToast("Downloading...");
     try {
       final resp = await http.get(Uri.parse(item.url));
-      final dir = await getApplicationDocumentsDirectory(); // Safe public dir on Android
-      // On Android 10+ scoped storage, this goes to App Data. 
-      // For Gallery access, we'd need MediaStore API (complex), but this saves to accessible file.
+      final dir = await getApplicationDocumentsDirectory(); 
       final ext = item.url.split('.').last.substring(0, 3);
       final file = File('${dir.path}/lunya_${DateTime.now().millisecondsSinceEpoch}.$ext');
       await file.writeAsBytes(resp.bodyBytes);
       _showToast("Saved to: ${file.path}");
-      AppLogger.log("IO", "File saved");
     } catch (e) {
       _showToast("Error: $e");
     }
@@ -371,8 +350,6 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin {
     }
   }
 
-  // --- UI COMPONENTS ---
-
   void _showToast(String msg) {
     ScaffoldMessenger.of(context).showSnackBar(SnackBar(
       content: Text(msg),
@@ -382,27 +359,35 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin {
     ));
   }
 
-  // Custom Source Dialog
+  // --- UI DIALOGS ---
+
   void _addCustomSourceDialog() {
     String url = "";
     String name = "";
-    showDialog(context: context, builder: (ctx) => AlertDialog(
+    bool isNsfwSrc = false;
+    
+    showDialog(context: context, builder: (ctx) => StatefulBuilder(
+      builder: (context, setDialogState) => AlertDialog(
       backgroundColor: const Color(0xFF1E1E24),
-      title: const Text("Add Custom Source"),
+      title: const Text("Add Source"),
       content: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          const Text("Supports: Reddit URL, Telegram Web (t.me/s/...), Nitter", style: TextStyle(fontSize: 12, color: Colors.grey)),
-          const SizedBox(height: 10),
           TextField(
-            decoration: const InputDecoration(labelText: "Name (e.g. My Channel)", filled: true),
+            decoration: const InputDecoration(labelText: "Name", filled: true),
             onChanged: (v) => name = v,
           ),
           const SizedBox(height: 10),
           TextField(
-            decoration: const InputDecoration(labelText: "URL (https://...)", filled: true),
+            decoration: const InputDecoration(labelText: "URL (Full Link)", filled: true, hintText: "https://t.me/s/my_channel"),
             onChanged: (v) => url = v,
           ),
+          const SizedBox(height: 10),
+          CheckboxListTile(
+            title: const Text("Is this source NSFW?"),
+            value: isNsfwSrc, 
+            onChanged: (v) => setDialogState(() => isNsfwSrc = v!)
+          )
         ],
       ),
       actions: [
@@ -413,20 +398,20 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin {
               sources.add(ContentSource(
                 id: DateTime.now().toString(),
                 name: name,
-                url: url, // User provided raw URL
-                type: SourceType.custom, // Scraper will handle as HTML
+                url: url,
+                type: SourceType.custom,
+                isNSFW: isNsfwSrc // Сохраняем флаг
               ));
             });
-            AppLogger.log("CFG", "Added custom source: $url");
+            AppLogger.log("CFG", "Added custom source: $name (NSFW: $isNsfwSrc)");
             Navigator.pop(ctx);
             _showToast("Source Added!");
           }
         }, child: const Text("Add")),
       ],
-    ));
+    )));
   }
 
-  // Log Screen
   void _openLogs() {
     Navigator.push(context, MaterialPageRoute(builder: (_) => Scaffold(
       appBar: AppBar(title: const Text("System Terminal")),
@@ -454,60 +439,64 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin {
     final item = _tabController.index == 0 ? _currentImg : _currentGif;
 
     return Scaffold(
-      extendBody: true, // For gesture area
+      extendBody: true,
       drawer: Drawer(
         backgroundColor: const Color(0xFF101014),
         child: ListView(
           padding: EdgeInsets.zero,
           children: [
             UserAccountsDrawerHeader(
-              accountName: const Text("Lunya Hub v6.0"),
-              accountEmail: const Text("Ultimate Edition"),
+              accountName: const Text("Lunya Hub v6.1"),
+              accountEmail: const Text("Global Filter Edition"),
               currentAccountPicture: const CircleAvatar(backgroundColor: Colors.deepPurple, child: Icon(Icons.pets, color: Colors.white)),
               decoration: const BoxDecoration(color: Colors.black),
             ),
+            
+            // GLOBAL NSFW SWITCH
             SwitchListTile(
               title: const Text("NSFW Filter"),
-              subtitle: Text(_allowNSFW ? "Status: UNLOCKED 🔞" : "Status: SAFE ✅", style: TextStyle(color: _allowNSFW ? Colors.red : Colors.green)),
+              subtitle: Text(_allowNSFW ? "UNLOCKED 🔞" : "SAFE MODE ✅", style: TextStyle(color: _allowNSFW ? Colors.red : Colors.green)),
               value: _allowNSFW,
               activeColor: Colors.red,
-              secondary: const Icon(Icons.lock_open),
+              secondary: Icon(Icons.lock, color: _allowNSFW ? Colors.red : Colors.green),
               onChanged: (val) {
                 setState(() {
                   _allowNSFW = val;
-                  _imgQueue.clear(); _gifQueue.clear();
-                  _currentImg = null; _currentGif = null;
+                  // Очищаем очереди, чтобы убрать уже загруженный нежелательный контент
+                  _imgQueue.clear(); 
+                  _gifQueue.clear();
+                  _currentImg = null; 
+                  _currentGif = null;
                 });
-                _fetchBatch();
+                _fetchBatch(); // Перезагружаем контент с новыми правилами
               },
             ),
             const Divider(color: Colors.white24),
+            
             ListTile(title: const Text("SOURCES"), trailing: IconButton(icon: const Icon(Icons.add), onPressed: _addCustomSourceDialog)),
             ...sources.map((s) => CheckboxListTile(
-              title: Text(s.name, style: const TextStyle(fontSize: 14)),
-              subtitle: Text(s.type.name, style: const TextStyle(fontSize: 10, color: Colors.grey)),
+              title: Text(s.name, style: TextStyle(
+                decoration: (!_allowNSFW && s.isNSFW) ? TextDecoration.lineThrough : null, // Зачеркнуть если заблокирован фильтром
+                color: s.isNSFW ? Colors.redAccent : Colors.white
+              )),
+              subtitle: Text(s.type.name.toUpperCase()),
               value: s.isActive,
-              activeColor: Colors.deepPurple,
-              onChanged: (v) => setState(() => s.isActive = v!),
+              // Блокируем чекбокс, если глобальный фильтр выключен, а источник NSFW
+              onChanged: (!_allowNSFW && s.isNSFW) ? null : (v) => setState(() => s.isActive = v!),
+              secondary: Icon(Icons.link, color: s.isNSFW ? Colors.red : Colors.white),
             )),
+            
             const Divider(color: Colors.white24),
             ListTile(leading: const Icon(Icons.terminal), title: const Text("System Logs"), onTap: _openLogs),
           ],
         ),
       ),
       body: GestureDetector(
-        // GESTURES for easier navigation
-        onHorizontalDragEnd: (details) {
-          if (details.primaryVelocity! < 0) _next(); // Swipe Left -> Next
-        },
-        onVerticalDragEnd: (details) {
-          if (details.primaryVelocity! > 0) _download(); // Swipe Down -> Download
-        },
-        onDoubleTap: () => _showToast("Added to Favorites (Simulated) ❤️"),
+        onHorizontalDragEnd: (d) { if (d.primaryVelocity! < 0) _next(); },
+        onVerticalDragEnd: (d) { if (d.primaryVelocity! > 0) _download(); },
         
         child: Stack(
           children: [
-            // 1. BACKGROUND
             Container(color: Colors.black),
             if (item != null)
                Positioned.fill(
@@ -517,11 +506,9 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin {
                  )
                ),
 
-            // 2. MAIN CONTENT AREA
             SafeArea(
               child: Column(
                 children: [
-                  // HEADER
                   Padding(
                     padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
                     child: Row(
@@ -533,44 +520,36 @@ class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin {
                           isScrollable: true,
                           indicatorColor: Colors.deepPurpleAccent,
                           labelColor: Colors.white,
-                          unselectedLabelColor: Colors.grey,
                           dividerColor: Colors.transparent,
                           onTap: (_) => setState((){}),
                           tabs: const [Tab(text: "ART"), Tab(text: "GIF")],
                         ),
-                        IconButton(icon: const Icon(Icons.public), onPressed: _addCustomSourceDialog), // Quick Add
+                        IconButton(icon: const Icon(Icons.public), onPressed: _addCustomSourceDialog),
                       ],
                     ),
                   ),
 
-                  // IMAGE VIEWER
                   Expanded(
                     child: Center(
                       child: _isLoading 
-                        ? Column(mainAxisSize: MainAxisSize.min, children: [
-                            const CircularProgressIndicator(), 
-                            const SizedBox(height: 20),
-                            Text(_loadingText, style: const TextStyle(color: Colors.white54))
-                          ])
+                        ? const CircularProgressIndicator()
                         : item == null 
-                          ? const Text("Queue empty. Check sources.") 
+                          ? const Text("Waiting for content...") 
                           : Image.network(
                               item.url, 
                               fit: BoxFit.contain,
-                              loadingBuilder: (c,child,p) => p==null ? child : const Center(child: CircularProgressIndicator(strokeWidth: 2)),
+                              loadingBuilder: (c,child,p) => p==null ? child : const CircularProgressIndicator(),
                               errorBuilder: (c,e,s) => const Icon(Icons.broken_image, size: 50, color: Colors.grey),
                             ),
                     ),
                   ),
 
-                  // BOTTOM CONTROLS (Padding for Android Gestures)
                   Padding(
-                    padding: const EdgeInsets.fromLTRB(20, 0, 20, 30), // Bottom padding ensures buttons aren't on nav bar
+                    padding: const EdgeInsets.fromLTRB(20, 0, 20, 30),
                     child: Row(
                       mainAxisAlignment: MainAxisAlignment.spaceEvenly,
                       children: [
                          _CircleButton(icon: Icons.download, onTap: _download),
-                         // BIG NEXT BUTTON
                          Expanded(
                            child: Padding(
                              padding: const EdgeInsets.symmetric(horizontal: 20),
