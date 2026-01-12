@@ -4,7 +4,10 @@ class ContentSource {
   final String url;
   final SourceType type;
   final bool isActive;
+  final bool isNsfw;
   final DateTime addedAt;
+  final DateTime? lastParsed;
+  final int parsedCount;
 
   ContentSource({
     required this.id,
@@ -12,9 +15,14 @@ class ContentSource {
     required this.url,
     required this.type,
     bool? isActive,
+    bool? isNsfw,
     DateTime? addedAt,
+    this.lastParsed,
+    int? parsedCount,
   })  : isActive = isActive ?? true,
-        addedAt = addedAt ?? DateTime.now();
+        isNsfw = isNsfw ?? false,
+        addedAt = addedAt ?? DateTime.now(),
+        parsedCount = parsedCount ?? 0;
 
   Map<String, dynamic> toMap() {
     return {
@@ -23,7 +31,10 @@ class ContentSource {
       'url': url,
       'type': type.name,
       'isActive': isActive ? 1 : 0,
+      'isNsfw': isNsfw ? 1 : 0,
       'addedAt': addedAt.toIso8601String(),
+      'lastParsed': lastParsed?.toIso8601String(),
+      'parsedCount': parsedCount,
     };
   }
 
@@ -37,7 +48,10 @@ class ContentSource {
         orElse: () => SourceType.reddit,
       ),
       isActive: (map['isActive'] as int) == 1,
+      isNsfw: (map['isNsfw'] as int) == 1,
       addedAt: DateTime.parse(map['addedAt'] as String),
+      lastParsed: map['lastParsed'] != null ? DateTime.parse(map['lastParsed'] as String) : null,
+      parsedCount: map['parsedCount'] as int? ?? 0,
     );
   }
 
@@ -47,7 +61,10 @@ class ContentSource {
     String? url,
     SourceType? type,
     bool? isActive,
+    bool? isNsfw,
     DateTime? addedAt,
+    DateTime? lastParsed,
+    int? parsedCount,
   }) {
     return ContentSource(
       id: id ?? this.id,
@@ -55,13 +72,40 @@ class ContentSource {
       url: url ?? this.url,
       type: type ?? this.type,
       isActive: isActive ?? this.isActive,
+      isNsfw: isNsfw ?? this.isNsfw,
       addedAt: addedAt ?? this.addedAt,
+      lastParsed: lastParsed ?? this.lastParsed,
+      parsedCount: parsedCount ?? this.parsedCount,
     );
   }
-}
 
-enum SourceType {
-  reddit,
-  twitter,
-  telegram,
+  // Стандартные источники
+  static List<ContentSource> getDefaultSources() {
+    return [
+      ContentSource(
+        id: 'default_1',
+        name: 'r/furry_irl',
+        url: 'https://www.reddit.com/r/furry_irl/',
+        type: SourceType.reddit,
+        isActive: true,
+        isNsfw: false,
+      ),
+      ContentSource(
+        id: 'default_2',
+        name: 'r/furrymemes',
+        url: 'https://www.reddit.com/r/furrymemes/',
+        type: SourceType.reddit,
+        isActive: true,
+        isNsfw: false,
+      ),
+      ContentSource(
+        id: 'default_3',
+        name: 'r/furryart',
+        url: 'https://www.reddit.com/r/furryart/',
+        type: SourceType.reddit,
+        isActive: true,
+        isNsfw: false,
+      ),
+    ];
+  }
 }
