@@ -6,10 +6,10 @@ import 'package:http/http.dart' as http;
 import 'dart:convert';
 import 'package:async_wallpaper/async_wallpaper.dart';
 import 'package:path_provider/path_provider.dart';
-import 'package:url_launcher/url_launcher.dart'; // Убедитесь, что этот пакет в pubspec.yaml
+import 'package:url_launcher/url_launcher.dart';
 
 void main() {
-  WidgetsFlutterBinding.ensureInitialized(); // Важно для инициализации каналов
+  WidgetsFlutterBinding.ensureInitialized();
   SystemChrome.setSystemUIOverlayStyle(const SystemUiOverlayStyle(
     statusBarColor: Colors.transparent,
     statusBarIconBrightness: Brightness.light,
@@ -61,7 +61,6 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   void addToLog(String message) {
-    // В релизе print может быть вырезан, но для дебага оставим
     debugPrint(message); 
     if (mounted) {
       setState(() {
@@ -156,7 +155,6 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   void _showAddCustomLinkDialog() {
-    // Контроллер создаем локально
     final TextEditingController urlController = TextEditingController();
     
     showDialog(
@@ -215,13 +213,10 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
-  // Безопасный запуск URL
   Future<void> _launchExternal(String url) async {
     final uri = Uri.parse(url);
     if (await canLaunchUrl(uri)) {
       await launchUrl(uri, mode: LaunchMode.externalApplication);
-    } else {
-      addToLog("Could not launch $url");
     }
   }
 
