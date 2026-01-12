@@ -2,6 +2,9 @@ import 'package:dio/dio.dart';
 import 'package:gal/gal.dart';
 import 'package:path_provider/path_provider.dart';
 import 'dart:io';
+import 'package:permission_handler/permission_handler.dart';
+import '../providers/logger_provider.dart';  // For addLog via context.read<LoggerProvider>().addLog
+
 
 Future<void> saveImage(String imageUrl) async {
   try {
