@@ -3,6 +3,7 @@ import 'package:provider/provider.dart';
 import '../providers/content_provider.dart';
 import '../providers/settings_provider.dart';
 import '../widgets/content_grid_widget.dart';
+import '../widgets/content_grid.dart';
 
 class FeedTab extends StatefulWidget {
   const FeedTab({super.key});
