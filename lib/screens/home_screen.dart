@@ -24,7 +24,6 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
   late AnimationController _floatingController;
   late AnimationController _buttonController;
   late AnimationController _likeController;
-  late ConfettiController _confettiController;
   bool _showHint = true;
   int _todayViewed = 0;
   DateTime _lastViewDate = DateTime.now();
@@ -49,7 +48,6 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
       vsync: this,
     );
 
-    _confettiController = ConfettiController(
       duration: const Duration(seconds: 2),
     );
 
@@ -70,7 +68,6 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
     _floatingController.dispose();
     _buttonController.dispose();
     _likeController.dispose();
-    _confettiController.dispose();
     super.dispose();
   }
 
@@ -129,18 +126,6 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
           ),
 
           if (_showHint) _buildSwipeHint(),
-          
-          // НОВАЯ ФИЧА: Конфетти при лайке
-          Align(
-            alignment: Alignment.topCenter,
-            child: ConfettiWidget(
-              confettiController: _confettiController,
-              blastDirectionality: BlastDirectionality.explosive,
-              colors: const [Colors.orange, Colors.pink, Colors.purple, Colors.blue],
-              numberOfParticles: 30,
-              gravity: 0.3,
-            ),
-          ),
         ],
       ),
     );
@@ -832,7 +817,6 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
                     gradient: [Colors.pink[700]!, Colors.pink[900]!],
                     onPressed: () {
                       _vibrate(HapticFeedbackType.medium);
-                      _confettiController.play();
                       _nextImage(provider, true);
                     },
                   ),
@@ -1509,9 +1493,6 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
           backgroundColor: color,
           behavior: SnackBarBehavior.floating,
           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(15)),
-          duration: const Duration(seconds: 2),
-        ),
-      );
     }
   }
 
