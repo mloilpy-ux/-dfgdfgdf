@@ -8,8 +8,14 @@ import 'services/database_service.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  await DatabaseService.instance.database;
   
+  try {
+    await DatabaseService.instance.database;
+    print('✅ Database initialized');
+  } catch (e) {
+    print('❌ Database error: $e');
+  }
+
   runApp(
     MultiProvider(
       providers: [
@@ -35,7 +41,7 @@ class FurryContentHub extends StatelessWidget {
           theme: ThemeData(
             useMaterial3: true,
             colorScheme: ColorScheme.fromSeed(
-              seedColor: const Color(0xFFFF6B35), // Furry orange
+              seedColor: const Color(0xFFFF6B35),
               brightness: Brightness.light,
             ),
           ),
