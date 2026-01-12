@@ -3,62 +3,99 @@ import 'package:hive/hive.dart';
 part 'content_item.g.dart';
 
 @HiveType(typeId: 0)
-class ContentItem {
+class ContentItem extends HiveObject {
   @HiveField(0)
   final String id;
+
   @HiveField(1)
-  final String title;
+  final String sourceId;
+
   @HiveField(2)
-  final String imageUrl;
+  final String title;
+
   @HiveField(3)
-  final String? thumbnailUrl;
+  final String? author;
+
   @HiveField(4)
-  final String sourceName;
+  final String mediaUrl;
+
   @HiveField(5)
-  final bool isGif;
+  final String? thumbnailUrl;
+
   @HiveField(6)
-  final bool isNsfw;
+  final bool isGif;
+
   @HiveField(7)
-  final DateTime created;
+  final bool isNsfw;
+
+  @HiveField(8)
+  final DateTime createdAt;
+
+  @HiveField(9)
+  bool isSaved;
+
+  @HiveField(10)
+  final String? postUrl;
 
   ContentItem({
     required this.id,
+    required this.sourceId,
     required this.title,
-    required this.imageUrl,
+    this.author,
+    required this.mediaUrl,
     this.thumbnailUrl,
-    required this.sourceName,
     this.isGif = false,
     this.isNsfw = false,
-    required this.created,
+    required this.createdAt,
+    this.isSaved = false,
+    this.postUrl,
   });
 
-  factory ContentItem.fromRedditJson(Map<String, dynamic> data, String sourceName) {
-    final title = data['title'] ?? 'Untitled';
-    String? imageUrl;
-    String? thumb;
-    final over18 = data['over_18'] ?? false;
-    final preview = data['preview']?['images']?[0]?['source']?['url'];
-    final thumbData = data['thumbnail'];
-    if (preview != null && preview.toString().contains('http')) {
-      imageUrl = preview.replaceAll('amp;', '');
-    } else {
-      imageUrl = data['url'];
-    }
-    if (thumbData != null && thumbData != 'self' && thumbData != 'nsfw') {
-      thumb = thumbData;
-    }
-    final isGif = imageUrl?.toLowerCase().endsWith('.gif') ?? false;
-    if (!RegExp(r'\.(jpg|jpeg|png|webp|gif)$').hasMatch(imageUrl ?? '')) return null!;
-    final created = DateTime.fromMillisecondsSinceEpoch((data['created_utc'] ?? 0) * 1000);
+  Map<String, dynamic> toMap() {
+    return {
+      'id': id,
+      'sourceId': sourceId,
+      'title': title,
+      'author': author,
+      'mediaUrl': mediaUrl,
+      'thumbnailUrl': thumbnailUrl,
+      'isGif': isGif ? 1 : 0,
+      'isNsfw': isNsfw ? 1 : 0,
+      'createdAt': createdAt.toIso8601String(),
+      'isSaved': isSaved ? 1 : 0,
+      'postUrl': postUrl,
+    };
+  }
+
+  factory ContentItem.fromMap(Map<String, dynamic> map) {
     return ContentItem(
-      id: data['id'] ?? '',
+      id: map['id'],
+      sourceId: map['sourceId'],
+      title: map['title'],
+      author: map['author'],
+      mediaUrl: map['mediaUrl'],
+      thumbnailUrl: map['thumbnailUrl'],
+      isGif: map['isGif'] == 1,
+      isNsfw: map['isNsfw'] == 1,
+      createdAt: DateTime.parse(map['createdAt']),
+      isSaved: map['isSaved'] == 1,
+      postUrl: map['postUrl'],
+    );
+  }
+
+  ContentItem copyWith({bool? isSaved}) {
+    return ContentItem(
+      id: id,
+      sourceId: sourceId,
       title: title,
-      imageUrl: imageUrl!,
-      thumbnailUrl: thumb,
-      sourceName: sourceName,
+      author: author,
+      mediaUrl: mediaUrl,
+      thumbnailUrl: thumbnailUrl,
       isGif: isGif,
-      isNsfw: over18,
-      created: created,
+      isNsfw: isNsfw,
+      createdAt: createdAt,
+      isSaved: isSaved ?? this.isSaved,
+      postUrl: postUrl,
     );
   }
 }
