@@ -1,40 +1,30 @@
 import 'dart:async';
+import 'dart:convert';
+import 'dart:collection';
 import 'dart:io';
-import 'dart:math';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:http/http.dart' as http;
-import 'dart:convert';
-import 'package:async_wallpaper/async_wallpaper.dart';
-import 'package:path_provider/path_provider.dart';
+import 'package:provider/provider.dart';
 import 'package:url_launcher/url_launcher.dart';
+import 'package:cached_network_image/cached_network_image.dart';
+import 'package:font_awesome_flutter/font_awesome_flutter.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
-// --- 1. CORE MODELS ---
+// ==========================================
+// 1. DATA MODELS
+// ==========================================
 
+enum SourceType { reddit, twitter, telegram, custom }
 enum ContentType { image, gif, video }
-enum SourceType { reddit, telegram, twitter, custom }
-
-class MediaItem {
-  final String url;
-  final ContentType type;
-  final String sourceName;
-  final bool isNSFW; // Флаг контента
-
-  MediaItem({
-    required this.url,
-    required this.type,
-    required this.sourceName,
-    this.isNSFW = false,
-  });
-}
 
 class ContentSource {
-  String id;
+  final String id;
   String name;
-  String url; 
+  String url;
   SourceType type;
   bool isActive;
-  bool isNSFW; // Флаг источника
+  bool isNSFW;
 
   ContentSource({
     required this.id,
@@ -44,139 +34,285 @@ class ContentSource {
     this.isActive = true,
     this.isNSFW = false,
   });
+
+  Map<String, dynamic> toJson() => {
+    'id': id, 'name': name, 'url': url,
+    'type': type.index, 'isActive': isActive, 'isNSFW': isNSFW
+  };
+
+  factory ContentSource.fromJson(Map<String, dynamic> json) => ContentSource(
+    id: json['id'], name: json['name'], url: json['url'],
+    type: SourceType.values[json['type']],
+    isActive: json['isActive'], isNSFW: json['isNSFW'],
+  );
 }
 
-// --- 2. LOGGER ---
+class MediaItem {
+  final String id;
+  final String url;
+  final String previewUrl;
+  final String title;
+  final ContentType type;
+  final String sourceName;
+  final bool isNSFW;
 
-class AppLogger {
-  static final List<String> logs = [];
-  static final StreamController<List<String>> _controller = StreamController.broadcast();
-  static Stream<List<String>> get stream => _controller.stream;
+  MediaItem({
+    required this.id,
+    required this.url,
+    required this.previewUrl,
+    required this.title,
+    required this.type,
+    required this.sourceName,
+    required this.isNSFW,
+  });
+}
 
-  static void log(String tag, String msg) {
-    final t = DateTime.now().toIso8601String().substring(11, 19);
-    final entry = "[$t] [$tag] $msg";
-    print(entry); 
-    logs.add(entry);
-    if (logs.length > 500) logs.removeAt(0);
-    _controller.add(List.from(logs));
+class LogEntry {
+  final String time;
+  final String tag;
+  final String message;
+  final Color color;
+
+  LogEntry(this.tag, this.message, {this.color = Colors.white}) 
+      : time = DateTime.now().toIso8601String().substring(11, 19);
+}
+
+// ==========================================
+// 2. STATE MANAGEMENT (PROVIDER)
+// ==========================================
+
+class AppState extends ChangeNotifier {
+  // --- SETTINGS ---
+  bool _globalNSFW = false;
+  bool _onlyGifs = false;
+  
+  // --- DATA ---
+  List<ContentSource> _sources = [];
+  final List<MediaItem> _feed = [];
+  final List<MediaItem> _favorites = [];
+  final Set<String> _seenIds = {}; // Anti-duplicate system
+  final List<LogEntry> _logs = [];
+
+  // --- GETTERS ---
+  bool get isNSFWAllowed => _globalNSFW;
+  bool get onlyGifs => _onlyGifs;
+  List<ContentSource> get sources => _sources;
+  List<MediaItem> get feed => _feed;
+  List<MediaItem> get favorites => _favorites;
+  List<LogEntry> get logs => List.from(_logs.reversed); // Newest first
+
+  bool _isLoading = false;
+  bool get isLoading => _isLoading;
+
+  AppState() {
+    _init();
   }
-}
 
-// --- 3. SCRAPER ENGINE (С УЛУЧШЕННОЙ ФИЛЬТРАЦИЕЙ) ---
-
-class ScraperEngine {
-  static const String _userAgent = "Mozilla/5.0 (compatible; LunyaHub/6.1; +http://lunya.app)";
-
-  // Ключевые слова для детекта NSFW в URL (для не-Reddit источников)
-  static const List<String> _nsfwKeywords = ['nsfw', 'yiff', 'xxx', 'porn', '18+', 'adult'];
-
-  static bool _detectNSFW(String url, ContentSource source) {
-    // 1. Если сам источник помечен как NSFW -> весь контент NSFW
-    if (source.isNSFW) return true;
-    
-    // 2. Эвристика по URL (для Telegram/Web)
-    final lowerUrl = url.toLowerCase();
-    for (var word in _nsfwKeywords) {
-      if (lowerUrl.contains(word)) return true;
+  void _init() async {
+    log("SYS", "Initializing Lunya Hub 7.0...", color: Colors.cyan);
+    await _loadSources();
+    if (_sources.isEmpty) {
+      _addDefaultSources();
     }
-    return false;
   }
 
-  static Future<List<MediaItem>> scrape(ContentSource source) async {
-    try {
-      if (source.type == SourceType.reddit) {
-        return _parseRedditJson(source);
-      } else {
-        return _parseHtml(source);
+  // --- LOGGING ---
+  void log(String tag, String msg, {Color color = Colors.white}) {
+    _logs.add(LogEntry(tag, msg, color: color));
+    if (_logs.length > 500) _logs.removeAt(0);
+    notifyListeners();
+  }
+
+  // --- SOURCE MANAGEMENT ---
+  void _addDefaultSources() {
+    log("CFG", "Adding default furry sources...");
+    addSource(ContentSource(id: 'r_furry_irl', name: 'r/furry_irl', url: 'https://www.reddit.com/r/furry_irl', type: SourceType.reddit));
+    addSource(ContentSource(id: 'r_furrymemes', name: 'r/furrymemes', url: 'https://www.reddit.com/r/furrymemes', type: SourceType.reddit));
+    addSource(ContentSource(id: 'r_furryart', name: 'r/furryart', url: 'https://www.reddit.com/r/furryart', type: SourceType.reddit));
+    saveSources();
+  }
+
+  void addSource(ContentSource source) {
+    _sources.add(source);
+    log("SRC", "Added source: ${source.name}", color: Colors.green);
+    saveSources();
+    notifyListeners();
+  }
+
+  void toggleSource(String id) {
+    final s = _sources.firstWhere((e) => e.id == id);
+    s.isActive = !s.isActive;
+    log("SRC", "${s.name} is now ${s.isActive ? 'ACTIVE' : 'INACTIVE'}");
+    saveSources();
+    notifyListeners();
+  }
+
+  void removeSource(String id) {
+    _sources.removeWhere((e) => e.id == id);
+    saveSources();
+    notifyListeners();
+  }
+
+  // --- FILTERS ---
+  void toggleNSFW() {
+    _globalNSFW = !_globalNSFW;
+    log("FLT", "Global NSFW set to: $_globalNSFW", color: Colors.pinkAccent);
+    // Clear feed to force refresh with new rules
+    _feed.clear();
+    _seenIds.clear(); 
+    fetchContent();
+    notifyListeners();
+  }
+
+  void toggleGifFilter() {
+    _onlyGifs = !_onlyGifs;
+    log("FLT", "GIF Only Mode: $_onlyGifs", color: Colors.purpleAccent);
+    _feed.clear();
+    _seenIds.clear();
+    fetchContent();
+    notifyListeners();
+  }
+
+  // --- CONTENT FETCHING ---
+  Future<void> fetchContent() async {
+    if (_isLoading) return;
+    _isLoading = true;
+    notifyListeners();
+
+    log("NET", "Starting batch fetch...", color: Colors.blue);
+    
+    int newItemsCount = 0;
+    final activeSources = _sources.where((s) => s.isActive).toList();
+
+    if (activeSources.isEmpty) {
+      log("ERR", "No active sources selected!", color: Colors.red);
+      _isLoading = false;
+      notifyListeners();
+      return;
+    }
+
+    // Shuffle sources to mix content
+    activeSources.shuffle();
+
+    for (var source in activeSources) {
+      if (newItemsCount >= 10) break; // Fetch limit per batch
+
+      try {
+        log("NET", "Scanning ${source.name}...");
+        List<MediaItem> items = [];
+        
+        if (source.type == SourceType.reddit) {
+          items = await _scrapeReddit(source);
+        } else {
+          // Placeholder for complex scraping (requires backend usually)
+          log("WRN", "Browser parsing for ${source.name} not fully implemented in client-only mode", color: Colors.orange);
+        }
+
+        for (var item in items) {
+          // 1. De-duplication
+          if (_seenIds.contains(item.id)) continue;
+          
+          // 2. NSFW Filter
+          if (item.isNSFW && !_globalNSFW) continue;
+
+          // 3. GIF Filter
+          if (_onlyGifs && item.type != ContentType.gif) continue;
+
+          _feed.add(item);
+          _seenIds.add(item.id);
+          newItemsCount++;
+        }
+      } catch (e) {
+        log("ERR", "Failed to scrape ${source.name}: $e", color: Colors.red);
       }
-    } catch (e) {
-      AppLogger.log("SCRAPER", "Error parsing ${source.name}: $e");
-      return [];
     }
+
+    _feed.shuffle(); // Randomize feed
+    log("NET", "Batch complete. Added $newItemsCount new items.", color: Colors.green);
+    _isLoading = false;
+    notifyListeners();
   }
 
-  static Future<List<MediaItem>> _parseRedditJson(ContentSource source) async {
-    final url = source.url.endsWith('.json') ? source.url : '${source.url}/hot.json?limit=25';
-    AppLogger.log("NET", "GET JSON: $url");
+  Future<List<MediaItem>> _scrapeReddit(ContentSource source) async {
+    final url = '${source.url}/hot.json?limit=25';
+    final response = await http.get(Uri.parse(url), headers: {'User-Agent': 'LunyaHub/7.0'});
     
-    final resp = await http.get(Uri.parse(url), headers: {'User-Agent': _userAgent});
-    if (resp.statusCode != 200) throw Exception("HTTP ${resp.statusCode}");
-
-    final data = json.decode(resp.body);
+    if (response.statusCode != 200) throw Exception('HTTP ${response.statusCode}');
+    
+    final data = json.decode(response.body);
     final children = data['data']['children'] as List;
-    List<MediaItem> items = [];
+    List<MediaItem> results = [];
 
     for (var child in children) {
       final d = child['data'];
-      final String u = d['url'];
-      final bool over18 = d['over_18'] ?? false; // Reddit flag
+      final String u = d['url_overridden_by_dest'] ?? d['url'];
+      final bool over18 = d['over_18'] ?? false;
       
-      // NSFW Logic: Source flag OR Post flag
-      final bool isItemNSFW = source.isNSFW || over18;
-
+      // Determine type
       ContentType type = ContentType.image;
-      if (u.contains('.gif') || u.contains('.mp4') || d['is_video'] == true) {
-        type = ContentType.gif;
-      }
+      if (u.endsWith('.gif') || d['is_video'] == true) type = ContentType.gif;
 
-      if (u.contains('i.redd.it') || u.contains('v.redd.it') || u.contains('imgur')) {
-        items.add(MediaItem(url: u, type: type, sourceName: source.name, isNSFW: isItemNSFW));
-      }
+      // Basic filtering for images/gifs
+      if (!u.contains('.jpg') && !u.contains('.png') && !u.contains('.gif') && !u.contains('i.redd.it')) continue;
+
+      results.add(MediaItem(
+        id: d['id'], // Reddit ID used for deduplication
+        url: u,
+        previewUrl: d['thumbnail'] != 'self' ? d['thumbnail'] : u,
+        title: d['title'],
+        type: type,
+        sourceName: source.name,
+        isNSFW: over18 || source.isNSFW,
+      ));
     }
-    return items;
+    return results;
   }
 
-  static Future<List<MediaItem>> _parseHtml(ContentSource source) async {
-    AppLogger.log("NET", "GET HTML: ${source.url}");
-    final resp = await http.get(Uri.parse(source.url), headers: {'User-Agent': _userAgent});
-    if (resp.statusCode != 200) throw Exception("HTTP ${resp.statusCode}");
-    
-    final html = resp.body;
-    List<MediaItem> items = [];
-
-    final bgImgRegex = RegExp(r"background-image:url\('([^']+)'\)");
-    final imgTagRegex = RegExp(r'<img[^>]+src="([^">]+)"');
-    final videoTagRegex = RegExp(r'<video[^>]+src="([^">]+)"');
-
-    for (var m in bgImgRegex.allMatches(html)) {
-      _addItem(items, m.group(1), ContentType.image, source);
+  // --- FAVORITES ---
+  void addToFavorites(MediaItem item) {
+    if (!_favorites.any((i) => i.id == item.id)) {
+      _favorites.add(item);
+      log("USR", "Saved to gallery: ${item.title}", color: Colors.yellow);
+      notifyListeners();
     }
-    for (var m in imgTagRegex.allMatches(html)) {
-      _addItem(items, m.group(1), ContentType.image, source);
-    }
-    for (var m in videoTagRegex.allMatches(html)) {
-      _addItem(items, m.group(1), ContentType.gif, source); 
-    }
-
-    AppLogger.log("SCRAPER", "Found ${items.length} items in HTML");
-    return items;
   }
 
-  static void _addItem(List<MediaItem> list, String? url, ContentType type, ContentSource source) {
-    if (url == null) return;
-    if (url.startsWith('//')) url = 'https:$url'; 
-    if (url.contains('emoji') || url.contains('icon') || url.contains('logo')) return; 
-    
-    // Auto-detect NSFW for web links
-    final bool isItemNSFW = _detectNSFW(url, source);
+  void removeFromFavorites(String id) {
+    _favorites.removeWhere((i) => i.id == id);
+    notifyListeners();
+  }
 
-    if (!list.any((i) => i.url == url)) {
-      list.add(MediaItem(url: url, type: type, sourceName: source.name, isNSFW: isItemNSFW));
+  // --- PERSISTENCE (Basic implementation) ---
+  Future<void> saveSources() async {
+    final prefs = await SharedPreferences.getInstance();
+    final String encoded = json.encode(_sources.map((e) => e.toJson()).toList());
+    await prefs.setString('sources', encoded);
+  }
+
+  Future<void> _loadSources() async {
+    final prefs = await SharedPreferences.getInstance();
+    if (prefs.containsKey('sources')) {
+      final String? encoded = prefs.getString('sources');
+      if (encoded != null) {
+        final List objects = json.decode(encoded);
+        _sources = objects.map((e) => ContentSource.fromJson(e)).toList();
+        notifyListeners();
+      }
     }
   }
 }
 
-// --- 4. UI MAIN ---
+// ==========================================
+// 3. UI COMPONENTS
+// ==========================================
 
 void main() {
-  WidgetsFlutterBinding.ensureInitialized();
-  SystemChrome.setSystemUIOverlayStyle(const SystemUiOverlayStyle(
-    statusBarColor: Colors.transparent,
-    systemNavigationBarColor: Colors.transparent, 
-  ));
-  SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
-  runApp(const LunyaApp());
+  runApp(
+    MultiProvider(
+      providers: [ChangeNotifierProvider(create: (_) => AppState())],
+      child: const LunyaApp(),
+    ),
+  );
 }
 
 class LunyaApp extends StatelessWidget {
@@ -185,16 +321,18 @@ class LunyaApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
+      title: 'Lunya Hub 7.0',
       debugShowCheckedModeBanner: false,
-      title: 'Lunya Hub 6.1',
-      theme: ThemeData.dark(useMaterial3: true).copyWith(
-        scaffoldBackgroundColor: const Color(0xFF000000),
-        colorScheme: const ColorScheme.dark(
-          primary: Color(0xFF7C4DFF), 
-          secondary: Color(0xFF64FFDA), 
-          surface: Color(0xFF121212),
+      theme: ThemeData(
+        useMaterial3: true,
+        brightness: Brightness.dark,
+        colorScheme: ColorScheme.fromSeed(
+          seedColor: const Color(0xFF6750A4),
+          brightness: Brightness.dark,
+          primary: const Color(0xFFD0BCFF),
+          secondary: const Color(0xFFCCC2DC),
         ),
-        appBarTheme: const AppBarTheme(backgroundColor: Colors.transparent, elevation: 0),
+        scaffoldBackgroundColor: const Color(0xFF141218),
       ),
       home: const MainScreen(),
     );
@@ -203,394 +341,430 @@ class LunyaApp extends StatelessWidget {
 
 class MainScreen extends StatefulWidget {
   const MainScreen({super.key});
+
   @override
   State<MainScreen> createState() => _MainScreenState();
 }
 
-class _MainScreenState extends State<MainScreen> with TickerProviderStateMixin {
-  late TabController _tabController;
-  
-  List<MediaItem> _imgQueue = [];
-  List<MediaItem> _gifQueue = [];
-  MediaItem? _currentImg;
-  MediaItem? _currentGif;
-  
-  bool _isLoading = false;
-  bool _allowNSFW = false; // Глобальный переключатель (по умолчанию выключен)
-  String _loadingText = "Initializing...";
-
-  List<ContentSource> sources = [
-    ContentSource(id: 'r1', name: 'r/Furry', url: 'https://www.reddit.com/r/furry', type: SourceType.reddit),
-    ContentSource(id: 'r2', name: 'r/FurryArt', url: 'https://www.reddit.com/r/furryart', type: SourceType.reddit),
-    ContentSource(id: 'tg1', name: 'TG: Furry Archive', url: 'https://t.me/s/furry_art_archive', type: SourceType.telegram),
-    // NSFW Source (маркирован флагом isNSFW: true)
-    ContentSource(id: 'r3', name: 'r/Yiff', url: 'https://www.reddit.com/r/yiff', type: SourceType.reddit, isNSFW: true, isActive: true),
-  ];
-
-  @override
-  void initState() {
-    super.initState();
-    _tabController = TabController(length: 2, vsync: this);
-    AppLogger.log("SYS", "Lunya Hub 6.1 Started");
-    _fetchBatch();
-  }
-
-  // --- MAIN FETCH LOGIC ---
-
-  Future<void> _fetchBatch() async {
-    if (_isLoading) return;
-    setState(() {
-      _isLoading = true;
-      _loadingText = "Scanning sources...";
-    });
-
-    // 1. Фильтруем ИСТОЧНИКИ
-    final activeSources = sources.where((s) {
-      if (!s.isActive) return false;
-      // Если глобальный NSFW выключен, а источник помечен как NSFW - пропускаем его полностью
-      if (!_allowNSFW && s.isNSFW) return false;
-      return true;
-    }).toList();
-    
-    if (activeSources.isEmpty) {
-      _showToast("No active SFW sources. Check settings.");
-      setState(() => _isLoading = false);
-      return;
-    }
-
-    final source = activeSources[Random().nextInt(activeSources.length)];
-    AppLogger.log("CORE", "Fetching from ${source.name}...");
-
-    final newItems = await ScraperEngine.scrape(source);
-
-    if (newItems.isNotEmpty) {
-      newItems.shuffle();
-      setState(() {
-        int addedCount = 0;
-        for (var item in newItems) {
-          // 2. Глобальная фильтрация КОНТЕНТА
-          // Если NSFW выключен, а у картинки (даже из SFW источника) есть маркер - скипаем
-          if (!_allowNSFW && item.isNSFW) {
-             AppLogger.log("FILTER", "Blocked NSFW item: ${item.url}");
-             continue; 
-          }
-
-          if (item.type == ContentType.image) {
-            _imgQueue.add(item);
-          } else {
-            _gifQueue.add(item);
-          }
-          addedCount++;
-        }
-        
-        if (addedCount == 0) {
-           AppLogger.log("CORE", "All items filtered out (SFW Mode)");
-        }
-
-        if (_currentImg == null && _imgQueue.isNotEmpty) _currentImg = _imgQueue.removeAt(0);
-        if (_currentGif == null && _gifQueue.isNotEmpty) _currentGif = _gifQueue.removeAt(0);
-      });
-    }
-
-    setState(() => _isLoading = false);
-  }
-
-  void _next() {
-    setState(() {
-      if (_tabController.index == 0) {
-        if (_imgQueue.isNotEmpty) {
-          _currentImg = _imgQueue.removeAt(0);
-        } else {
-          _fetchBatch();
-        }
-      } else {
-        if (_gifQueue.isNotEmpty) {
-          _currentGif = _gifQueue.removeAt(0);
-        } else {
-          _fetchBatch();
-        }
-      }
-    });
-  }
-
-  Future<void> _download() async {
-    final item = _tabController.index == 0 ? _currentImg : _currentGif;
-    if (item == null) return;
-    
-    _showToast("Downloading...");
-    try {
-      final resp = await http.get(Uri.parse(item.url));
-      final dir = await getApplicationDocumentsDirectory(); 
-      final ext = item.url.split('.').last.substring(0, 3);
-      final file = File('${dir.path}/lunya_${DateTime.now().millisecondsSinceEpoch}.$ext');
-      await file.writeAsBytes(resp.bodyBytes);
-      _showToast("Saved to: ${file.path}");
-    } catch (e) {
-      _showToast("Error: $e");
-    }
-  }
-
-  Future<void> _setWallpaper() async {
-    if (_currentImg == null) return;
-    _showToast("Setting Wallpaper...");
-    try {
-      final resp = await http.get(Uri.parse(_currentImg!.url));
-      final dir = await getTemporaryDirectory();
-      final file = File('${dir.path}/wall.jpg');
-      await file.writeAsBytes(resp.bodyBytes);
-      
-      await AsyncWallpaper.setWallpaperFromFile(
-        filePath: file.path,
-        wallpaperLocation: AsyncWallpaper.BOTH_SCREENS,
-        goToHome: true,
-      );
-      _showToast("Wallpaper Set!");
-    } catch (e) {
-      _showToast("Error: $e");
-    }
-  }
-
-  void _showToast(String msg) {
-    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-      content: Text(msg),
-      backgroundColor: Colors.deepPurpleAccent,
-      behavior: SnackBarBehavior.floating,
-      duration: const Duration(seconds: 1),
-    ));
-  }
-
-  // --- UI DIALOGS ---
-
-  void _addCustomSourceDialog() {
-    String url = "";
-    String name = "";
-    bool isNsfwSrc = false;
-    
-    showDialog(context: context, builder: (ctx) => StatefulBuilder(
-      builder: (context, setDialogState) => AlertDialog(
-      backgroundColor: const Color(0xFF1E1E24),
-      title: const Text("Add Source"),
-      content: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          TextField(
-            decoration: const InputDecoration(labelText: "Name", filled: true),
-            onChanged: (v) => name = v,
-          ),
-          const SizedBox(height: 10),
-          TextField(
-            decoration: const InputDecoration(labelText: "URL (Full Link)", filled: true, hintText: "https://t.me/s/my_channel"),
-            onChanged: (v) => url = v,
-          ),
-          const SizedBox(height: 10),
-          CheckboxListTile(
-            title: const Text("Is this source NSFW?"),
-            value: isNsfwSrc, 
-            onChanged: (v) => setDialogState(() => isNsfwSrc = v!)
-          )
-        ],
-      ),
-      actions: [
-        TextButton(onPressed: () => Navigator.pop(ctx), child: const Text("Cancel")),
-        FilledButton(onPressed: () {
-          if (url.isNotEmpty && name.isNotEmpty) {
-            setState(() {
-              sources.add(ContentSource(
-                id: DateTime.now().toString(),
-                name: name,
-                url: url,
-                type: SourceType.custom,
-                isNSFW: isNsfwSrc // Сохраняем флаг
-              ));
-            });
-            AppLogger.log("CFG", "Added custom source: $name (NSFW: $isNsfwSrc)");
-            Navigator.pop(ctx);
-            _showToast("Source Added!");
-          }
-        }, child: const Text("Add")),
-      ],
-    )));
-  }
-
-  void _openLogs() {
-    Navigator.push(context, MaterialPageRoute(builder: (_) => Scaffold(
-      appBar: AppBar(title: const Text("System Terminal")),
-      backgroundColor: Colors.black,
-      body: StreamBuilder<List<String>>(
-        stream: AppLogger.stream,
-        initialData: AppLogger.logs,
-        builder: (ctx, snap) {
-          final logs = snap.data ?? [];
-          return ListView.builder(
-            reverse: true,
-            itemCount: logs.length,
-            itemBuilder: (ctx, i) => Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-              child: Text(logs[logs.length - 1 - i], style: const TextStyle(color: Colors.greenAccent, fontFamily: 'monospace', fontSize: 11)),
-            ),
-          );
-        },
-      ),
-    )));
-  }
+class _MainScreenState extends State<MainScreen> {
+  int _selectedIndex = 0;
 
   @override
   Widget build(BuildContext context) {
-    final item = _tabController.index == 0 ? _currentImg : _currentGif;
+    final state = context.watch<AppState>();
+
+    final List<Widget> pages = [
+      const FeedPage(),
+      const SourcesPage(),
+      const FavoritesPage(),
+      const LogsPage(),
+    ];
 
     return Scaffold(
-      extendBody: true,
-      drawer: Drawer(
-        backgroundColor: const Color(0xFF101014),
-        child: ListView(
-          padding: EdgeInsets.zero,
+      appBar: AppBar(
+        title: Row(
           children: [
-            UserAccountsDrawerHeader(
-              accountName: const Text("Lunya Hub v6.1"),
-              accountEmail: const Text("Global Filter Edition"),
-              currentAccountPicture: const CircleAvatar(backgroundColor: Colors.deepPurple, child: Icon(Icons.pets, color: Colors.white)),
-              decoration: const BoxDecoration(color: Colors.black),
-            ),
-            
-            // GLOBAL NSFW SWITCH
-            SwitchListTile(
-              title: const Text("NSFW Filter"),
-              subtitle: Text(_allowNSFW ? "UNLOCKED 🔞" : "SAFE MODE ✅", style: TextStyle(color: _allowNSFW ? Colors.red : Colors.green)),
-              value: _allowNSFW,
-              activeColor: Colors.red,
-              secondary: Icon(Icons.lock, color: _allowNSFW ? Colors.red : Colors.green),
-              onChanged: (val) {
-                setState(() {
-                  _allowNSFW = val;
-                  // Очищаем очереди, чтобы убрать уже загруженный нежелательный контент
-                  _imgQueue.clear(); 
-                  _gifQueue.clear();
-                  _currentImg = null; 
-                  _currentGif = null;
-                });
-                _fetchBatch(); // Перезагружаем контент с новыми правилами
-              },
-            ),
-            const Divider(color: Colors.white24),
-            
-            ListTile(title: const Text("SOURCES"), trailing: IconButton(icon: const Icon(Icons.add), onPressed: _addCustomSourceDialog)),
-            ...sources.map((s) => CheckboxListTile(
-              title: Text(s.name, style: TextStyle(
-                decoration: (!_allowNSFW && s.isNSFW) ? TextDecoration.lineThrough : null, // Зачеркнуть если заблокирован фильтром
-                color: s.isNSFW ? Colors.redAccent : Colors.white
-              )),
-              subtitle: Text(s.type.name.toUpperCase()),
-              value: s.isActive,
-              // Блокируем чекбокс, если глобальный фильтр выключен, а источник NSFW
-              onChanged: (!_allowNSFW && s.isNSFW) ? null : (v) => setState(() => s.isActive = v!),
-              secondary: Icon(Icons.link, color: s.isNSFW ? Colors.red : Colors.white),
-            )),
-            
-            const Divider(color: Colors.white24),
-            ListTile(leading: const Icon(Icons.terminal), title: const Text("System Logs"), onTap: _openLogs),
-          ],
-        ),
-      ),
-      body: GestureDetector(
-        onHorizontalDragEnd: (d) { if (d.primaryVelocity! < 0) _next(); },
-        onVerticalDragEnd: (d) { if (d.primaryVelocity! > 0) _download(); },
-        
-        child: Stack(
-          children: [
-            Container(color: Colors.black),
-            if (item != null)
-               Positioned.fill(
-                 child: Opacity(
-                   opacity: 0.3, 
-                   child: Image.network(item.url, fit: BoxFit.cover, errorBuilder: (_,__,___)=>const SizedBox())
-                 )
-               ),
-
-            SafeArea(
-              child: Column(
-                children: [
-                  Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                    child: Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      children: [
-                        Builder(builder: (c) => IconButton(icon: const Icon(Icons.menu), onPressed: () => Scaffold.of(c).openDrawer())),
-                        TabBar(
-                          controller: _tabController,
-                          isScrollable: true,
-                          indicatorColor: Colors.deepPurpleAccent,
-                          labelColor: Colors.white,
-                          dividerColor: Colors.transparent,
-                          onTap: (_) => setState((){}),
-                          tabs: const [Tab(text: "ART"), Tab(text: "GIF")],
-                        ),
-                        IconButton(icon: const Icon(Icons.public), onPressed: _addCustomSourceDialog),
-                      ],
-                    ),
-                  ),
-
-                  Expanded(
-                    child: Center(
-                      child: _isLoading 
-                        ? const CircularProgressIndicator()
-                        : item == null 
-                          ? const Text("Waiting for content...") 
-                          : Image.network(
-                              item.url, 
-                              fit: BoxFit.contain,
-                              loadingBuilder: (c,child,p) => p==null ? child : const CircularProgressIndicator(),
-                              errorBuilder: (c,e,s) => const Icon(Icons.broken_image, size: 50, color: Colors.grey),
-                            ),
-                    ),
-                  ),
-
-                  Padding(
-                    padding: const EdgeInsets.fromLTRB(20, 0, 20, 30),
-                    child: Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                      children: [
-                         _CircleButton(icon: Icons.download, onTap: _download),
-                         Expanded(
-                           child: Padding(
-                             padding: const EdgeInsets.symmetric(horizontal: 20),
-                             child: FloatingActionButton.extended(
-                               onPressed: _next,
-                               label: const Text("NEXT"),
-                               icon: const Icon(Icons.arrow_forward),
-                               backgroundColor: Colors.white,
-                               foregroundColor: Colors.black,
-                             ),
-                           ),
-                         ),
-                         _CircleButton(icon: Icons.wallpaper, onTap: _setWallpaper, color: Colors.deepPurpleAccent),
-                      ],
-                    ),
-                  )
-                ],
+            const Icon(FontAwesomeIcons.paw, size: 20),
+            const SizedBox(width: 10),
+            const Text("Lunya Hub"),
+            const Spacer(),
+            // NSFW Toggle
+            IconButton(
+              icon: Icon(
+                state.isNSFWAllowed ? Icons.visibility : Icons.visibility_off,
+                color: state.isNSFWAllowed ? Colors.redAccent : Colors.grey,
               ),
+              onPressed: () => context.read<AppState>().toggleNSFW(),
+              tooltip: "Toggle NSFW",
+            ),
+            // GIF Toggle
+            IconButton(
+              icon: Icon(
+                Icons.gif_box,
+                color: state.onlyGifs ? Colors.greenAccent : Colors.grey,
+              ),
+              onPressed: () => context.read<AppState>().toggleGifFilter(),
+              tooltip: "GIFs Only",
             ),
           ],
         ),
+        elevation: 0,
+        backgroundColor: Colors.black26,
+      ),
+      body: IndexedStack(
+        index: _selectedIndex,
+        children: pages,
+      ),
+      bottomNavigationBar: NavigationBar(
+        selectedIndex: _selectedIndex,
+        onDestinationSelected: (int index) {
+          setState(() {
+            _selectedIndex = index;
+          });
+        },
+        destinations: const [
+          NavigationDestination(
+            icon: Icon(Icons.grid_view),
+            label: 'Feed',
+          ),
+          NavigationDestination(
+            icon: Icon(Icons.source),
+            label: 'Sources',
+          ),
+          NavigationDestination(
+            icon: Icon(Icons.favorite),
+            label: 'Gallery',
+          ),
+          NavigationDestination(
+            icon: Icon(Icons.terminal),
+            label: 'Logs',
+          ),
+        ],
       ),
     );
   }
 }
 
-class _CircleButton extends StatelessWidget {
-  final IconData icon;
-  final VoidCallback onTap;
-  final Color color;
-  const _CircleButton({required this.icon, required this.onTap, this.color = const Color(0xFF2C2C35)});
+// --- FEED PAGE ---
+class FeedPage extends StatefulWidget {
+  const FeedPage({super.key});
+
+  @override
+  State<FeedPage> createState() => _FeedPageState();
+}
+
+class _FeedPageState extends State<FeedPage> {
+  final ScrollController _scrollController = ScrollController();
+
+  @override
+  void initState() {
+    super.initState();
+    _scrollController.addListener(_onScroll);
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (context.read<AppState>().feed.isEmpty) {
+        context.read<AppState>().fetchContent();
+      }
+    });
+  }
+
+  void _onScroll() {
+    if (_scrollController.position.pixels >= _scrollController.position.maxScrollExtent - 200) {
+      context.read<AppState>().fetchContent();
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
-    return GestureDetector(
-      onTap: onTap,
-      child: Container(
-        width: 50, height: 50,
-        decoration: BoxDecoration(color: color, shape: BoxShape.circle),
-        child: Icon(icon, color: Colors.white),
+    final state = context.watch<AppState>();
+
+    if (state.feed.isEmpty && state.isLoading) {
+      return const Center(child: CircularProgressIndicator());
+    }
+
+    if (state.feed.isEmpty) {
+      return Center(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            const Icon(FontAwesomeIcons.cat, size: 64, color: Colors.grey),
+            const SizedBox(height: 16),
+            const Text("No content found. Check filters or sources."),
+            const SizedBox(height: 16),
+            ElevatedButton(
+              onPressed: () => context.read<AppState>().fetchContent(),
+              child: const Text("Refresh"),
+            )
+          ],
+        ),
+      );
+    }
+
+    return RefreshIndicator(
+      onRefresh: () async {
+        // Here you might want to clear list and refetch
+        await context.read<AppState>().fetchContent();
+      },
+      child: ListView.builder(
+        controller: _scrollController,
+        itemCount: state.feed.length + (state.isLoading ? 1 : 0),
+        itemBuilder: (context, index) {
+          if (index == state.feed.length) {
+            return const Padding(
+              padding: EdgeInsets.all(16.0),
+              child: Center(child: CircularProgressIndicator()),
+            );
+          }
+
+          final item = state.feed[index];
+          
+          // Swipe Logic
+          return Dismissible(
+            key: Key(item.id),
+            direction: DismissDirection.horizontal,
+            background: Container(
+              color: Colors.green,
+              alignment: Alignment.centerLeft,
+              padding: const EdgeInsets.only(left: 20),
+              child: const Icon(Icons.favorite, color: Colors.white, size: 32),
+            ),
+            secondaryBackground: Container(
+              color: Colors.red,
+              alignment: Alignment.centerRight,
+              padding: const EdgeInsets.only(right: 20),
+              child: const Icon(Icons.delete, color: Colors.white, size: 32),
+            ),
+            onDismissed: (direction) {
+              if (direction == DismissDirection.startToEnd) {
+                // Save (Right Swipe)
+                context.read<AppState>().addToFavorites(item);
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(content: Text("Saved to Gallery!"), duration: Duration(seconds: 1)),
+                );
+              }
+              // Item is visually removed, but we might want to keep it in memory
+              // Ideally, you'd implement a "hidden" list. 
+              // For now, Dismissible removes it from the widget tree only.
+            },
+            child: Card(
+              margin: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+              clipBehavior: Clip.antiAlias,
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Stack(
+                    alignment: Alignment.bottomRight,
+                    children: [
+                      CachedNetworkImage(
+                        imageUrl: item.url, // Using full URL for quality. Optimized: use previewUrl
+                        fit: BoxFit.cover,
+                        height: 300,
+                        width: double.infinity,
+                        placeholder: (context, url) => Container(
+                          height: 300,
+                          color: Colors.grey[900],
+                          child: const Center(child: Icon(Icons.image, color: Colors.grey)),
+                        ),
+                        errorWidget: (context, url, error) => Container(
+                          height: 300,
+                          color: Colors.grey[900],
+                          child: const Center(child: Icon(Icons.broken_image)),
+                        ),
+                      ),
+                      if (item.type == ContentType.gif)
+                        Container(
+                          margin: const EdgeInsets.all(8),
+                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                          decoration: BoxDecoration(color: Colors.black54, borderRadius: BorderRadius.circular(4)),
+                          child: const Text("GIF", style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+                        ),
+                      if (item.isNSFW)
+                        Container(
+                          margin: const EdgeInsets.all(8),
+                          alignment: Alignment.topLeft,
+                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                          decoration: BoxDecoration(color: Colors.red.withOpacity(0.8), borderRadius: BorderRadius.circular(4)),
+                          child: const Text("NSFW", style: TextStyle(color: Colors.white, fontSize: 10, fontWeight: FontWeight.bold)),
+                        ),
+                    ],
+                  ),
+                  Padding(
+                    padding: const EdgeInsets.all(12.0),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(item.title, style: const TextStyle(fontWeight: FontWeight.bold), maxLines: 2, overflow: TextOverflow.ellipsis),
+                        const SizedBox(height: 4),
+                        Row(
+                          children: [
+                            Icon(FontAwesomeIcons.reddit, size: 14, color: Colors.orange[400]),
+                            const SizedBox(width: 4),
+                            Text(item.sourceName, style: TextStyle(color: Colors.grey[400], fontSize: 12)),
+                            const Spacer(),
+                            IconButton(
+                              icon: const Icon(Icons.favorite_border),
+                              onPressed: () => context.read<AppState>().addToFavorites(item),
+                            ),
+                            IconButton(
+                              icon: const Icon(Icons.open_in_new),
+                              onPressed: () => launchUrl(Uri.parse(item.url), mode: LaunchMode.externalApplication),
+                            ),
+                          ],
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          );
+        },
       ),
+    );
+  }
+}
+
+// --- SOURCES PAGE ---
+class SourcesPage extends StatelessWidget {
+  const SourcesPage({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    final state = context.watch<AppState>();
+    final TextEditingController urlController = TextEditingController();
+
+    return Scaffold(
+      floatingActionButton: FloatingActionButton(
+        child: const Icon(Icons.add),
+        onPressed: () {
+          showDialog(
+            context: context,
+            builder: (ctx) => AlertDialog(
+              title: const Text("Add Source"),
+              content: TextField(
+                controller: urlController,
+                decoration: const InputDecoration(hintText: "Enter Subreddit (e.g., r/furry) or URL"),
+              ),
+              actions: [
+                TextButton(onPressed: () => Navigator.pop(ctx), child: const Text("Cancel")),
+                TextButton(
+                  onPressed: () {
+                    final text = urlController.text;
+                    if (text.isNotEmpty) {
+                      // Simple parser logic for demo
+                      String name = text;
+                      String url = text;
+                      SourceType type = SourceType.custom;
+
+                      if (text.startsWith("r/") || text.contains("reddit.com")) {
+                        type = SourceType.reddit;
+                        if (!text.startsWith("http")) {
+                           url = "https://www.reddit.com/$text";
+                        }
+                        name = text.replaceAll("https://www.reddit.com/", "");
+                      }
+
+                      context.read<AppState>().addSource(ContentSource(
+                        id: DateTime.now().millisecondsSinceEpoch.toString(), 
+                        name: name, 
+                        url: url, 
+                        type: type
+                      ));
+                    }
+                    Navigator.pop(ctx);
+                  },
+                  child: const Text("Add"),
+                ),
+              ],
+            ),
+          );
+        },
+      ),
+      body: ListView.builder(
+        itemCount: state.sources.length,
+        itemBuilder: (context, index) {
+          final source = state.sources[index];
+          return ListTile(
+            leading: Checkbox(
+              value: source.isActive,
+              onChanged: (_) => context.read<AppState>().toggleSource(source.id),
+            ),
+            title: Text(source.name),
+            subtitle: Text(source.url, style: const TextStyle(fontSize: 10)),
+            trailing: IconButton(
+              icon: const Icon(Icons.delete_outline, color: Colors.red),
+              onPressed: () => context.read<AppState>().removeSource(source.id),
+            ),
+          );
+        },
+      ),
+    );
+  }
+}
+
+// --- LOGS PAGE ---
+class LogsPage extends StatelessWidget {
+  const LogsPage({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    final state = context.watch<AppState>();
+
+    return Container(
+      color: Colors.black,
+      child: ListView.builder(
+        reverse: true, // Keep scroll at bottom ideally, but list is reversed in getter
+        itemCount: state.logs.length,
+        itemBuilder: (context, index) {
+          final log = state.logs[index];
+          return Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+            child: RichText(
+              text: TextSpan(
+                style: const TextStyle(fontFamily: 'Courier', fontSize: 12),
+                children: [
+                  TextSpan(text: "[${log.time}] ", style: const TextStyle(color: Colors.grey)),
+                  TextSpan(text: "[${log.tag}] ", style: TextStyle(color: log.color, fontWeight: FontWeight.bold)),
+                  TextSpan(text: log.message, style: const TextStyle(color: Colors.white)),
+                ],
+              ),
+            ),
+          );
+        },
+      ),
+    );
+  }
+}
+
+// --- FAVORITES PAGE ---
+class FavoritesPage extends StatelessWidget {
+  const FavoritesPage({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    final state = context.watch<AppState>();
+
+    return GridView.builder(
+      padding: const EdgeInsets.all(8),
+      gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+        crossAxisCount: 2,
+        childAspectRatio: 0.8,
+        crossAxisSpacing: 8,
+        mainAxisSpacing: 8,
+      ),
+      itemCount: state.favorites.length,
+      itemBuilder: (context, index) {
+        final item = state.favorites[index];
+        return ClipRRect(
+          borderRadius: BorderRadius.circular(12),
+          child: Stack(
+            fit: StackFit.expand,
+            children: [
+              CachedNetworkImage(
+                imageUrl: item.url,
+                fit: BoxFit.cover,
+              ),
+              Positioned(
+                bottom: 0,
+                left: 0,
+                right: 0,
+                child: Container(
+                  color: Colors.black54,
+                  padding: const EdgeInsets.all(4),
+                  child: Row(
+                    children: [
+                      Expanded(child: Text(item.title, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 10, color: Colors.white))),
+                      IconButton(
+                        icon: const Icon(Icons.delete, size: 16, color: Colors.white),
+                        onPressed: () => context.read<AppState>().removeFromFavorites(item.id),
+                      )
+                    ],
+                  ),
+                ),
+              )
+            ],
+          ),
+        );
+      },
     );
   }
 }
