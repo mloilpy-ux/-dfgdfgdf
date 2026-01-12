@@ -1,40 +1,14 @@
-import 'package:hive/hive.dart';
-
-part 'content_item.g.dart';
-
-@HiveType(typeId: 0)
-class ContentItem extends HiveObject {
-  @HiveField(0)
+class ContentItem {
   final String id;
-
-  @HiveField(1)
   final String sourceId;
-
-  @HiveField(2)
   final String title;
-
-  @HiveField(3)
   final String? author;
-
-  @HiveField(4)
   final String mediaUrl;
-
-  @HiveField(5)
   final String? thumbnailUrl;
-
-  @HiveField(6)
   final bool isGif;
-
-  @HiveField(7)
   final bool isNsfw;
-
-  @HiveField(8)
   final DateTime createdAt;
-
-  @HiveField(9)
   bool isSaved;
-
-  @HiveField(10)
   final String? postUrl;
 
   ContentItem({
