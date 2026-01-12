@@ -1,3 +1,5 @@
+import 'source_type.dart';
+
 class ContentSource {
   final String id;
   final String name;
@@ -79,7 +81,6 @@ class ContentSource {
     );
   }
 
-  // Стандартные источники
   static List<ContentSource> getDefaultSources() {
     return [
       ContentSource(
