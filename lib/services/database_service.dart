@@ -103,11 +103,6 @@ class DatabaseService {
 
   Future<void> _upgradeDB(Database db, int oldVersion, int newVersion) async {
     _logger.log('⬆️ Обновление БД с версии $oldVersion до $newVersion');
-    
-    // Здесь добавляйте миграции при обновлении схемы БД
-    // if (oldVersion < 2) {
-    //   await db.execute('ALTER TABLE content ADD COLUMN newField TEXT');
-    // }
   }
 
   Future<void> _insertDefaultSources(Database db) async {
@@ -251,7 +246,7 @@ class DatabaseService {
         where: where,
         whereArgs: args.isEmpty ? null : args,
         orderBy: 'createdAt DESC',
-        limit: 1000, // Ограничение для производительности
+        limit: 1000,
       );
 
       _logger.log('📦 Загружено ${maps.length} элементов контента');
@@ -299,6 +294,8 @@ class DatabaseService {
       rethrow;
     }
   }
+
+  // ========== НЕДОСТАЮЩИЕ МЕТОДЫ ==========
 
   Future<void> deleteContent(String id) async {
     try {
