@@ -34,8 +34,12 @@ class _HomeScreenState extends State<HomeScreen> {
       appBar: AppBar(
         backgroundColor: Colors.black,
         elevation: 0,
-        title: const Text('Furry Hub', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+        title: const Text(
+          'Furry Hub',
+          style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
+        ),
         actions: [
+          // Фильтр типа контента
           PopupMenuButton<ContentType>(
             icon: const Icon(Icons.filter_alt, color: Colors.white),
             onSelected: (type) {
@@ -85,6 +89,7 @@ class _HomeScreenState extends State<HomeScreen> {
               ),
             ],
           ),
+          // Настройки
           IconButton(
             icon: const Icon(Icons.settings, color: Colors.white),
             onPressed: _showSettings,
@@ -93,16 +98,19 @@ class _HomeScreenState extends State<HomeScreen> {
       ),
       body: Consumer<ContentProvider>(
         builder: (context, provider, _) {
+          // Загрузка
           if (provider.isLoading && provider.filteredItems.isEmpty) {
             return const Center(
               child: CircularProgressIndicator(color: Colors.orange),
             );
           }
 
+          // Пустое состояние
           if (provider.filteredItems.isEmpty) {
             return _buildEmptyState(provider);
           }
 
+          // Проверка индекса
           if (_currentIndex >= provider.filteredItems.length) {
             WidgetsBinding.instance.addPostFrameCallback((_) {
               if (mounted) {
@@ -116,7 +124,10 @@ class _HomeScreenState extends State<HomeScreen> {
 
           return Column(
             children: [
+              // Индикатор прогресса
               _buildProgressIndicator(provider),
+              
+              // Основная картинка
               Expanded(
                 child: ContentCard(
                   key: ValueKey(item.id),
@@ -124,6 +135,8 @@ class _HomeScreenState extends State<HomeScreen> {
                   onTap: () => _showFullscreen(item),
                 ),
               ),
+              
+              // Кнопки управления
               _buildControlButtons(provider, item),
             ],
           );
@@ -255,6 +268,7 @@ class _HomeScreenState extends State<HomeScreen> {
       child: SafeArea(
         child: Row(
           children: [
+            // Кнопка: ДАЛЕЕ (пропустить)
             Expanded(
               child: _buildButton(
                 icon: Icons.skip_next,
@@ -266,6 +280,7 @@ class _HomeScreenState extends State<HomeScreen> {
             
             const SizedBox(width: 12),
             
+            // Кнопка: УСТАНОВИТЬ ОБОИ (только для картинок)
             if (showWallpaperButton) ...[
               Expanded(
                 child: _buildButton(
@@ -278,6 +293,7 @@ class _HomeScreenState extends State<HomeScreen> {
               const SizedBox(width: 12),
             ],
             
+            // Кнопка: СОХРАНИТЬ
             Expanded(
               child: _buildButton(
                 icon: Icons.favorite,
@@ -366,6 +382,7 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Future<void> _setWallpaper(ContentItem item) async {
+    // Проверяем разрешения
     final status = await Permission.storage.request();
     if (!status.isGranted) {
       if (mounted) {
@@ -379,6 +396,7 @@ class _HomeScreenState extends State<HomeScreen> {
       return;
     }
 
+    // Показываем диалог выбора
     final location = await showDialog<int>(
       context: context,
       builder: (context) => AlertDialog(
@@ -437,6 +455,7 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Future<void> _applyWallpaper(ContentItem item, int location) async {
+    // Показываем загрузку
     showDialog(
       context: context,
       barrierDismissible: false,
@@ -465,24 +484,26 @@ class _HomeScreenState extends State<HomeScreen> {
     try {
       int wallpaperLocation;
       
+      // Используем числовые константы напрямую
       switch (location) {
         case 1:
-          wallpaperLocation = WallpaperManagerPlus.HOME_SCREEN;
+          wallpaperLocation = 1; // HOME_SCREEN
           break;
         case 2:
-          wallpaperLocation = WallpaperManagerPlus.LOCK_SCREEN;
+          wallpaperLocation = 2; // LOCK_SCREEN
           break;
         case 3:
-          wallpaperLocation = WallpaperManagerPlus.BOTH_SCREENS;
+          wallpaperLocation = 3; // BOTH_SCREENS
           break;
         default:
-          wallpaperLocation = WallpaperManagerPlus.HOME_SCREEN;
+          wallpaperLocation = 1;
       }
 
+      // Устанавливаем обои
       await WallpaperManagerPlus().setWallpaper(item.mediaUrl, wallpaperLocation);
       
       if (mounted) {
-        Navigator.pop(context);
+        Navigator.pop(context); // Закрываем диалог загрузки
         
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
@@ -502,7 +523,7 @@ class _HomeScreenState extends State<HomeScreen> {
       }
     } catch (e) {
       if (mounted) {
-        Navigator.pop(context);
+        Navigator.pop(context); // Закрываем диалог загрузки
         
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
@@ -549,6 +570,7 @@ class _HomeScreenState extends State<HomeScreen> {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
+            // Заголовок
             Container(
               width: 50,
               height: 5,
@@ -568,6 +590,7 @@ class _HomeScreenState extends State<HomeScreen> {
             ),
             const SizedBox(height: 20),
             
+            // NSFW фильтр
             Consumer<ContentProvider>(
               builder: (context, provider, _) => Container(
                 decoration: BoxDecoration(
@@ -593,6 +616,7 @@ class _HomeScreenState extends State<HomeScreen> {
             
             const SizedBox(height: 15),
             
+            // Сохранённые
             Container(
               decoration: BoxDecoration(
                 color: Colors.grey[850],
@@ -638,6 +662,7 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 }
 
+// Полноэкранный просмотр
 class FullscreenViewer extends StatelessWidget {
   final ContentItem item;
 
@@ -700,6 +725,7 @@ class FullscreenViewer extends StatelessWidget {
             ),
           ),
           
+          // Кнопка закрытия
           Positioned(
             top: 40,
             left: 10,
@@ -715,6 +741,7 @@ class FullscreenViewer extends StatelessWidget {
             ),
           ),
           
+          // Информация о картинке
           Positioned(
             bottom: 0,
             left: 0,
