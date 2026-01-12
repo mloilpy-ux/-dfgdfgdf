@@ -1,32 +1,30 @@
 import 'package:flutter/foundation.dart';
-import 'package:shared_preferences/shared_preferences.dart';
+import 'package:hive/hive.dart';
 
-class SettingsProvider extends ChangeNotifier {
-  bool _showNsfw = true;
-  bool _gifOnly = false;
+class SettingsProvider with ChangeNotifier {
+  static const String _boxName = 'settings';
+  late Box _box;
+
+  bool _showNsfw = false;
+  bool _initialized = false;
+
   bool get showNsfw => _showNsfw;
-  bool get gifOnly => _gifOnly;
+  bool get initialized => _initialized;
 
   SettingsProvider() {
-    _load();
+    _init();
   }
 
-  Future<void> _load() async {
-    final prefs = await SharedPreferences.getInstance();
-    _showNsfw = prefs.getBool('showNsfw') ?? true;
-    _gifOnly = prefs.getBool('gifOnly') ?? false;
+  Future<void> _init() async {
+    _box = await Hive.openBox(_boxName);
+    _showNsfw = _box.get('showNsfw', defaultValue: false);
+    _initialized = true;
     notifyListeners();
   }
 
-  void toggleNsfw() {
+  Future<void> toggleNsfw() async {
     _showNsfw = !_showNsfw;
-    SharedPreferences.getInstance().then((prefs) => prefs.setBool('showNsfw', _showNsfw));
-    notifyListeners();
-  }
-
-  void toggleGif() {
-    _gifOnly = !_gifOnly;
-    SharedPreferences.getInstance().then((prefs) => prefs.setBool('gifOnly', _gifOnly));
+    await _box.put('showNsfw', _showNsfw);
     notifyListeners();
   }
 }
