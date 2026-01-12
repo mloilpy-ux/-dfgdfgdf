@@ -1,32 +1,7 @@
-name: lunya_hub
-description: Ultimate Furry Content Aggregator
-publish_to: 'none'
-version: 7.0.0+1
-
-environment:
-  sdk: '>=3.0.0 <4.0.0'
-
 dependencies:
   flutter:
     sdk: flutter
-  # State Management
-  provider: ^6.1.1
-  # Networking
   http: ^1.1.0
-  # Storage
-  shared_preferences: ^2.2.2
   path_provider: ^2.1.1
-  # UI Utilities
-  cached_network_image: ^3.3.1
   url_launcher: ^6.2.1
-  # Icons
-  cupertino_icons: ^1.0.6
-  font_awesome_flutter: ^10.7.0
-
-dev_dependencies:
-  flutter_test:
-    sdk: flutter
-  flutter_lints: ^3.0.0
-
-flutter:
-  uses-material-design: true
+  # share_plus: ^7.0.0 # Рекомендую добавить для шеринга, но код будет работать и без него
