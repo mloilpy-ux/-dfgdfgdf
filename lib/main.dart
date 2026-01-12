@@ -1,10 +1,10 @@
-import 'dart:io'; // Для работы с файлами
+import 'dart:io'; 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:http/http.dart' as http;
 import 'dart:convert';
 import 'package:async_wallpaper/async_wallpaper.dart';
-import 'package:path_provider/path_provider.dart'; // Обязательно добавьте этот пакет в pubspec.yaml
+import 'package:path_provider/path_provider.dart'; 
 
 void main() => runApp(const MaterialApp(
   debugShowCheckedModeBanner: false,
@@ -21,50 +21,57 @@ class _FurryWallpaperAppState extends State<FurryWallpaperApp> {
   String currentImageUrl = "";
   bool isLoading = false;
   
-  // Логика очереди и пагинации
-  List<String> imageQueue = []; // Очередь загруженных ссылок
-  String redditAfterToken = ""; // Маркер для загрузки следующей страницы Reddit
+  List<String> imageQueue = []; 
+  String redditAfterToken = ""; 
   
   String debugLog = "Log started...";
 
   void addToLog(String message) {
-    // Пишем лог только в дебаг-консоль и переменную
     print(message); 
     setState(() {
       debugLog += "\n[${DateTime.now().toString().split(' ')[1].split('.')[0]}] $message";
     });
   }
 
-  // Загрузка пачки постов с Reddit
+  // Обновленная функция с новыми источниками
   Future<void> fetchBatchFromReddit() async {
-    addToLog("Fetching new batch (after: $redditAfterToken)...");
+    addToLog("Fetching mix (furry+irl+memes+art)...");
     try {
-      final url = 'https://www.reddit.com/r/furry/hot.json?limit=25&after=$redditAfterToken';
+      // ИСПОЛЬЗУЕМ МУЛЬТИ-РЕДДИТ URL: объединяем источники через "+"
+      // Это дает смешанную ленту "Горячего" из всех 4 сабреддитов
+      final sources = "furry+furry_irl+furrymemes+furryart";
+      final url = 'https://www.reddit.com/r/$sources/hot.json?limit=30&after=$redditAfterToken';
       
       final response = await http.get(
         Uri.parse(url),
-        headers: {'User-Agent': 'Flutter:LunyaApp:v1.1 (by /u/Lunya)'},
+        headers: {'User-Agent': 'Flutter:LunyaApp:v1.2 (by /u/Lunya)'},
       ).timeout(const Duration(seconds: 15));
 
       if (response.statusCode == 200) {
         final data = json.decode(response.body);
         
-        // Обновляем токен для следующей страницы
         redditAfterToken = data['data']['after'] ?? "";
         
         final posts = data['data']['children'] as List;
         int count = 0;
         
         for (var post in posts) {
-          final postUrl = post['data']['url'] as String;
-          // Фильтруем только прямые ссылки на картинки
+          final postData = post['data'];
+          final postUrl = postData['url'] as String;
+          
+          // Дополнительная проверка: иногда картинки в furry_irl это gif, 
+          // для обоев лучше пока оставить jpg/png.
           if (postUrl.contains('i.redd.it') && 
-             (postUrl.endsWith('.jpg') || postUrl.endsWith('.png'))) {
-            imageQueue.add(postUrl);
-            count++;
+             (postUrl.endsWith('.jpg') || postUrl.endsWith('.png') || postUrl.endsWith('.jpeg'))) {
+            
+            // Проверка на дубликаты (если вдруг Reddit вернет то же самое)
+            if (!imageQueue.contains(postUrl) && postUrl != currentImageUrl) {
+               imageQueue.add(postUrl);
+               count++;
+            }
           }
         }
-        addToLog("Batch loaded: +$count images. Queue size: ${imageQueue.length}");
+        addToLog("Batch loaded: +$count images. Total in queue: ${imageQueue.length}");
       } else {
         addToLog("Reddit Error: ${response.statusCode}");
       }
@@ -73,82 +80,75 @@ class _FurryWallpaperAppState extends State<FurryWallpaperApp> {
     }
   }
 
-  // Главная кнопка "Найти арт"
   Future<void> showNextImage() async {
     if (isLoading) return;
     setState(() => isLoading = true);
 
-    // Если очередь пуста, грузим новую пачку
     if (imageQueue.isEmpty) {
       await fetchBatchFromReddit();
     }
 
     if (imageQueue.isNotEmpty) {
-      // Берем первую картинку из очереди и удаляем её (First-In-First-Out)
-      // Это гарантирует отсутствие повторов
       final nextImage = imageQueue.removeAt(0);
       setState(() {
         currentImageUrl = nextImage;
         isLoading = false;
       });
-      addToLog("Showing: ...${nextImage.substring(nextImage.length - 15)}");
+      // Показываем в логе, откуда примерно файл
+      addToLog("Showing: ...${nextImage.substring(nextImage.lastIndexOf('/'))}");
     } else {
       setState(() => isLoading = false);
-      addToLog("Queue is empty even after fetch!");
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text("Не удалось найти картинки :("))
-      );
+      addToLog("Queue is empty! Try again.");
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text("Пусто... Попробуйте нажать еще раз!"))
+        );
+      }
     }
   }
 
-  // Установка обоев через скачивание файла
   Future<void> setWallpaper() async {
     if (currentImageUrl.isEmpty) return;
-    addToLog("Downloading image for wallpaper...");
+    addToLog("Downloading image...");
     
     try {
-      // 1. Скачиваем файл во временную папку
       var file = await _downloadFile(currentImageUrl);
       if (file == null) return;
 
-      addToLog("File saved to: ${file.path}");
+      addToLog("Setting wallpaper...");
 
-      // 2. Устанавливаем обои из файла
-      // ВАЖНО: goToHome: true свернет приложение, чтобы вы увидели результат
       bool result = await AsyncWallpaper.setWallpaperFromFile(
         filePath: file.path,
         wallpaperLocation: AsyncWallpaper.BOTH_SCREENS,
         goToHome: true,
       );
 
-      addToLog("Wallpaper set result: $result");
+      addToLog("Result: $result");
       
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text("Обои успешно установлены!"), backgroundColor: Colors.green),
+        const SnackBar(content: Text("Готово! Обои обновлены."), backgroundColor: Colors.green),
       );
 
     } catch (e) {
-      addToLog("Wallpaper Error: $e");
+      addToLog("Error: $e");
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text("Ошибка: $e"), backgroundColor: Colors.red),
       );
     }
   }
 
-  // Вспомогательная функция для скачивания
   Future<File?> _downloadFile(String url) async {
     try {
       final response = await http.get(Uri.parse(url));
       if (response.statusCode == 200) {
         final directory = await getTemporaryDirectory();
-        // Генерируем уникальное имя файла
-        final fileName = "wallpaper_${DateTime.now().millisecondsSinceEpoch}.jpg";
+        final fileName = "wall_${DateTime.now().millisecondsSinceEpoch}.jpg";
         final file = File('${directory.path}/$fileName');
         return await file.writeAsBytes(response.bodyBytes);
       }
     } catch (e) {
-      addToLog("Download error: $e");
+      addToLog("Download failed: $e");
     }
     return null;
   }
@@ -164,7 +164,7 @@ class _FurryWallpaperAppState extends State<FurryWallpaperApp> {
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                const Text("Debug Log", style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+                const Text("System Log", style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
                 IconButton(
                   icon: const Icon(Icons.copy, color: Colors.blueAccent),
                   onPressed: () {
@@ -188,22 +188,21 @@ class _FurryWallpaperAppState extends State<FurryWallpaperApp> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: const Color(0xFF1A1A2E),
+      backgroundColor: const Color(0xFF121212), // Более темный фон
       appBar: AppBar(
-        title: const Text("Lunya Wallpaper", style: TextStyle(color: Colors.white)),
-        backgroundColor: Colors.deepPurple[900],
-        elevation: 0,
-        actions: [IconButton(onPressed: showLog, icon: const Icon(Icons.bug_report, color: Colors.white70))],
+        title: const Text("Lunya Mix Feed", style: TextStyle(color: Colors.white)),
+        backgroundColor: Colors.indigo[900],
+        actions: [IconButton(onPressed: showLog, icon: const Icon(Icons.data_object, color: Colors.white54))],
       ),
       body: Column(
         children: [
           Expanded(
             child: Padding(
-              padding: const EdgeInsets.all(16.0),
+              padding: const EdgeInsets.all(12.0),
               child: ClipRRect(
-                borderRadius: BorderRadius.circular(20),
+                borderRadius: BorderRadius.circular(16),
                 child: Container(
-                  color: Colors.black26,
+                  color: Colors.white10,
                   width: double.infinity,
                   child: currentImageUrl.isNotEmpty
                       ? Image.network(
@@ -211,13 +210,20 @@ class _FurryWallpaperAppState extends State<FurryWallpaperApp> {
                           fit: BoxFit.contain,
                           loadingBuilder: (context, child, progress) {
                             if (progress == null) return child;
-                            return const Center(child: CircularProgressIndicator());
+                            return const Center(child: CircularProgressIndicator(color: Colors.indigo));
                           },
-                          errorBuilder: (context, error, stackTrace) => 
-                            const Center(child: Icon(Icons.broken_image, color: Colors.red, size: 50)),
+                          errorBuilder: (context, error, stack) => 
+                            const Center(child: Column(
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              children: [
+                                Icon(Icons.broken_image, color: Colors.redAccent, size: 40),
+                                SizedBox(height: 10),
+                                Text("Не удалось загрузить картинку", style: TextStyle(color: Colors.white54))
+                              ],
+                            )),
                         )
                       : const Center(
-                          child: Icon(Icons.image_search, size: 80, color: Colors.white12)
+                          child: Icon(Icons.layers, size: 80, color: Colors.white12)
                         ),
                 ),
               ),
@@ -228,41 +234,41 @@ class _FurryWallpaperAppState extends State<FurryWallpaperApp> {
             child: Row(
               children: [
                 Expanded(
-                  flex: 2,
+                  flex: 3,
                   child: SizedBox(
-                    height: 55,
+                    height: 56,
                     child: ElevatedButton.icon(
                       onPressed: isLoading ? null : showNextImage,
                       style: ElevatedButton.styleFrom(
-                        backgroundColor: Colors.deepPurpleAccent,
-                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(15))
+                        backgroundColor: Colors.indigoAccent,
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                        elevation: 4,
                       ),
                       icon: isLoading 
                         ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white)) 
-                        : const Icon(Icons.refresh, color: Colors.white),
+                        : const Icon(Icons.shuffle, color: Colors.white), // Иконка shuffle так как это микс
                       label: Text(
-                        isLoading ? "Загрузка..." : "Следующий арт", 
-                        style: const TextStyle(color: Colors.white, fontSize: 16)
+                        isLoading ? "Загрузка..." : "Микс Арт/Мемы", 
+                        style: const TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold)
                       ),
                     ),
                   ),
                 ),
-                if (currentImageUrl.isNotEmpty) ...[
-                  const SizedBox(width: 15),
-                  SizedBox(
-                    height: 55,
-                    width: 55,
-                    child: ElevatedButton(
-                      onPressed: setWallpaper,
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: Colors.teal,
-                        padding: EdgeInsets.zero,
-                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(15))
-                      ),
-                      child: const Icon(Icons.wallpaper, color: Colors.white),
+                const SizedBox(width: 12),
+                SizedBox(
+                  height: 56,
+                  width: 60,
+                  child: ElevatedButton(
+                    onPressed: currentImageUrl.isNotEmpty ? setWallpaper : null, // Блокируем, если пусто
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: Colors.teal,
+                      padding: EdgeInsets.zero,
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                      elevation: 4,
                     ),
+                    child: const Icon(Icons.wallpaper, color: Colors.white, size: 28),
                   ),
-                ]
+                )
               ],
             ),
           ),
