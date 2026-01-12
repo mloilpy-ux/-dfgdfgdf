@@ -143,7 +143,8 @@ class _HomeScreenState extends State<HomeScreen> {
     }
 
     if (imageQueue.isNotEmpty) {
-      if (imageQueue.length > 5) {
+      // Логика перемешивания
+      if (imageQueue.length > 5 && customUrls.isEmpty) {
         int index = Random().nextInt(3); 
         final next = imageQueue.removeAt(index);
         setState(() => currentImageUrl = next);
@@ -154,39 +155,76 @@ class _HomeScreenState extends State<HomeScreen> {
     }
   }
 
+  // --- ЛОГИКА ОБРАБОТКИ ССЫЛОК (TG/TWITTER) ---
+  
+  // Эта функция пытается превратить ссылку на пост в ссылку на картинку
+  String _processLink(String input) {
+    String clean = input.trim();
+    
+    // 1. Twitter / X Fix
+    // x.com/user/status/123 -> d.fxtwitter.com/... (иногда работает как прямой линк на медиа)
+    if (clean.contains("twitter.com") || clean.contains("x.com")) {
+      // Пока что просто возвращаем как есть, так как без API ключа сложно вытащить картинку.
+      // Но можно попробовать использовать сервисы-прокси, если они доступны.
+      // Для надежности просим пользователя вставлять прямые ссылки (pbs.twimg.com)
+      return clean;
+    }
+
+    // 2. Telegram Web
+    // https://t.me/channelname/123 -> https://t.me/channelname/123?embed=1&mode=tme
+    // Телеграм не отдает картинки по прямой ссылке просто так. 
+    // Лучший способ - это user agent trick, но в рамках простого URL это сложно.
+    
+    return clean;
+  }
+
   void _showAddCustomLinkDialog() {
     final TextEditingController urlController = TextEditingController();
     
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
-        title: const Text("Добавить свой источник"),
+        title: const Text("Добавить источник"),
         content: Column(
           mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            const Text("Вставьте прямую ссылку:", style: TextStyle(fontSize: 12, color: Colors.white60)),
+            const Text(
+              "Вставьте ссылку на картинку (.jpg/.png).\n"
+              "Для Twitter/X: Нажмите на картинку -> ПКМ -> Копировать адрес изображения.\n"
+              "Для Telegram: Откройте в браузере, ПКМ по фото -> Копировать ссылку.",
+              style: TextStyle(fontSize: 12, color: Colors.white60)
+            ),
             const SizedBox(height: 10),
             TextField(
               controller: urlController,
               decoration: const InputDecoration(
-                hintText: "https://example.com/image.jpg",
+                hintText: "https://...",
                 border: OutlineInputBorder(),
                 filled: true,
+                labelText: "URL Картинки"
               ),
             ),
-            const SizedBox(height: 10),
+            const SizedBox(height: 15),
+            const Text("Быстрый поиск:", style: TextStyle(fontWeight: FontWeight.bold)),
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceEvenly,
               children: [
-                TextButton.icon(
-                  icon: const Icon(Icons.public),
-                  label: const Text("Twitter"),
-                  onPressed: () => _launchExternal("https://twitter.com"), 
+                // Кнопки открывают браузер для поиска контента
+                IconButton.filledTonal(
+                  icon: const Icon(Icons.close), // X logo replacement
+                  onPressed: () => _launchExternal("https://x.com/search?q=furry%20art&src=typed_query&f=media"),
+                  tooltip: "Search X (Twitter)",
                 ),
-                TextButton.icon(
+                IconButton.filledTonal(
                   icon: const Icon(Icons.send),
-                  label: const Text("TG Web"),
                   onPressed: () => _launchExternal("https://web.telegram.org"), 
+                  tooltip: "Telegram Web",
+                ),
+                IconButton.filledTonal(
+                  icon: const Icon(Icons.image_search),
+                  onPressed: () => _launchExternal("https://www.furaffinity.net"), 
+                  tooltip: "FurAffinity",
                 ),
               ],
             )
@@ -197,13 +235,14 @@ class _HomeScreenState extends State<HomeScreen> {
           FilledButton(
             onPressed: () {
               if (urlController.text.isNotEmpty) {
+                final processed = _processLink(urlController.text);
                 setState(() {
-                  customUrls.add(urlController.text);
-                  imageQueue.insert(0, urlController.text); 
-                  currentImageUrl = urlController.text; 
+                  customUrls.add(processed);
+                  imageQueue.insert(0, processed); 
+                  currentImageUrl = processed; 
                 });
                 Navigator.pop(context);
-                ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Ссылка добавлена!")));
+                ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Добавлено в очередь!")));
               }
             },
             child: const Text("Добавить"),
@@ -223,9 +262,19 @@ class _HomeScreenState extends State<HomeScreen> {
   Future<void> setWallpaper() async {
     if (currentImageUrl.isEmpty) return;
     try {
+      // Качаем байты
       final response = await http.get(Uri.parse(currentImageUrl));
+      
+      if (response.statusCode != 200) {
+        throw Exception("Server Error: ${response.statusCode}");
+      }
+      
       final dir = await getTemporaryDirectory();
-      final file = File('${dir.path}/wall_temp.jpg');
+      // Определяем расширение
+      String ext = ".jpg";
+      if (currentImageUrl.endsWith(".png")) ext = ".png";
+      
+      final file = File('${dir.path}/wall_temp$ext');
       await file.writeAsBytes(response.bodyBytes);
       
       await AsyncWallpaper.setWallpaperFromFile(
@@ -238,6 +287,9 @@ class _HomeScreenState extends State<HomeScreen> {
       }
     } catch (e) {
       addToLog("Wall Err: $e");
+      if (mounted) {
+         ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Ошибка загрузки: $e"), backgroundColor: Colors.red));
+      }
     }
   }
 
@@ -268,7 +320,8 @@ class _HomeScreenState extends State<HomeScreen> {
             const Divider(),
             ListTile(
               leading: const Icon(Icons.add_link),
-              title: const Text("Добавить ссылку"),
+              title: const Text("Добавить источник"),
+              subtitle: const Text("Twitter / TG / FA"),
               onTap: () {
                 Navigator.pop(context);
                 _showAddCustomLinkDialog();
@@ -299,6 +352,7 @@ class _HomeScreenState extends State<HomeScreen> {
                 fit: BoxFit.cover,
                 color: Colors.black.withOpacity(0.9),
                 colorBlendMode: BlendMode.darken,
+                errorBuilder: (c, e, s) => Container(color: Colors.black),
               ),
             ),
 
@@ -346,6 +400,18 @@ class _HomeScreenState extends State<HomeScreen> {
                                 fit: BoxFit.contain,
                                 loadingBuilder: (_, child, p) => p == null ? child : 
                                   const Center(child: CircularProgressIndicator()),
+                                errorBuilder: (context, error, stackTrace) {
+                                  return const Center(
+                                    child: Column(
+                                      mainAxisAlignment: MainAxisAlignment.center,
+                                      children: [
+                                        Icon(Icons.broken_image, size: 50, color: Colors.white38),
+                                        SizedBox(height: 10),
+                                        Text("Ошибка загрузки ссылки.\nПопробуйте прямой URL (.jpg)", textAlign: TextAlign.center, style: TextStyle(color: Colors.white54))
+                                      ],
+                                    )
+                                  );
+                                },
                               )
                             else 
                               const Center(child: Icon(Icons.downloading, size: 50)),
