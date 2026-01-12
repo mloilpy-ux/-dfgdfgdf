@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../models/content_item.dart';
+import '../models/content_source.dart';
 import '../services/database_service.dart';
 import '../services/reddit_parser.dart';
 import '../services/nsfw_detector_service.dart';
@@ -19,7 +20,7 @@ class ContentProvider with ChangeNotifier {
   bool get isLoading => _isLoading;
   bool get showNsfw => _showNsfw;
 
-  Future<void> loadContent(List activeSources) async {
+  Future<void> loadContent(List<ContentSource> activeSources) async {
     _isLoading = true;
     notifyListeners();
 
@@ -28,20 +29,23 @@ class ContentProvider with ChangeNotifier {
     for (var source in activeSources) {
       if (!source.isActive) continue;
 
-      switch (source.type) {
-        case SourceType.reddit:
-          final newItems = await _redditParser.parseSubreddit(source.url, source.id);
-          
-          for (var item in newItems) {
-            final wasShown = await _db.wasShown(item.id);
-            if (!wasShown) {
-              await _db.insertContent(item);
-              await _db.markAsShown(item.id);
-            }
+      // ИСПРАВЛЕНО: заменён switch на if-else
+      if (source.type == SourceType.reddit) {
+        final newItems = await _redditParser.parseSubreddit(source.url, source.id);
+        
+        for (var item in newItems) {
+          final wasShown = await _db.wasShown(item.id);
+          if (!wasShown) {
+            await _db.insertContent(item);
+            await _db.markAsShown(item.id);
           }
-          break;
-        default:
-          _logger.log('⚠️ Тип источника ${source.type} пока не поддерживается');
+        }
+      } else if (source.type == SourceType.twitter) {
+        _logger.log('⚠️ Twitter парсинг пока не реализован');
+      } else if (source.type == SourceType.telegram) {
+        _logger.log('⚠️ Telegram парсинг пока не реализован');
+      } else {
+        _logger.log('⚠️ Неизвестный тип источника: ${source.type}');
       }
     }
 
