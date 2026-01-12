@@ -1,8 +1,5 @@
 import 'package:flutter/material.dart';
-import 'package:hive_flutter/hive_flutter.dart';
 import 'package:provider/provider.dart';
-import 'models/content_item.dart';
-import 'models/content_source.dart';
 import 'providers/content_provider.dart';
 import 'providers/sources_provider.dart';
 import 'providers/settings_provider.dart';
@@ -12,11 +9,6 @@ import 'theme.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  
-  await Hive.initFlutter();
-  // Регистрация адаптеров (требует генерации через build_runner)
-  // Hive.registerAdapter(ContentItemAdapter());
-  // Hive.registerAdapter(ContentSourceAdapter());
   
   runApp(
     MultiProvider(
