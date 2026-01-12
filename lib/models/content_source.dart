@@ -1,40 +1,14 @@
-import 'package:hive/hive.dart';
+enum SourceType { reddit, twitter, telegram }
 
-part 'content_source.g.dart';
-
-enum SourceType {
-  reddit,
-  twitter,
-  telegram,
-}
-
-@HiveType(typeId: 1)
-class ContentSource extends HiveObject {
-  @HiveField(0)
+class ContentSource {
   final String id;
-
-  @HiveField(1)
   String name;
-
-  @HiveField(2)
   String url;
-
-  @HiveField(3)
   SourceType type;
-
-  @HiveField(4)
   bool isActive;
-
-  @HiveField(5)
   bool isNsfw;
-
-  @HiveField(6)
   DateTime addedAt;
-
-  @HiveField(7)
   DateTime? lastParsed;
-
-  @HiveField(8)
   int parsedCount;
 
   ContentSource({
