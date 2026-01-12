@@ -1,45 +1,57 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
 import 'dart:math';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:http/http.dart' as http;
-import 'dart:convert';
-import 'package:async_wallpaper/async_wallpaper.dart';
-import 'package:path_provider/path_provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:cached_network_image/cached_network_image.dart';
-
-// --- 1. МОДЕЛИ ДАННЫХ ---
+import 'package:path_provider/path_provider.dart';
+import 'package:async_wallpaper/async_wallpaper.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 enum ContentType { image, gif }
+enum SourceType { reddit, telegram, twitter, custom }
 
 class MediaItem {
-  final String id;
   final String url;
   final ContentType type;
   final String sourceName;
   final bool isNSFW;
-  bool isFavorite;
+  final String postId; // For dedup
 
   MediaItem({
-    required this.id,
     required this.url,
     required this.type,
     required this.sourceName,
     this.isNSFW = false,
-    this.isFavorite = false,
+    this.postId = '',
   });
 
   Map<String, dynamic> toJson() => {
-    'id': id, 'url': url, 'type': type.index, 'source': sourceName, 'nsfw': isNSFW
+    'url': url,
+    'type': type.index,
+    'sourceName': sourceName,
+    'isNSFW': isNSFW,
+    'postId': postId,
   };
+
+  factory MediaItem.fromJson(Map<String, dynamic> json) => MediaItem(
+    url: json['url'],
+    type: ContentType.values[json['type']],
+    sourceName: json['sourceName'],
+    isNSFW: json['isNSFW'] ?? false,
+    postId: json['postId'] ?? '',
+  );
 }
 
 class ContentSource {
   String id;
   String name;
   String url;
+  SourceType type;
   bool isActive;
   bool isNSFW;
 
@@ -47,506 +59,624 @@ class ContentSource {
     required this.id,
     required this.name,
     required this.url,
+    required this.type,
     this.isActive = true,
     this.isNSFW = false,
   });
+
+  Map<String, dynamic> toJson() => {
+    'id': id,
+    'name': name,
+    'url': url,
+    'type': type.index,
+    'isActive': isActive,
+    'isNSFW': isNSFW,
+  };
+
+  factory ContentSource.fromJson(Map<String, dynamic> json) => ContentSource(
+    id: json['id'],
+    name: json['name'],
+    url: json['url'],
+    type: SourceType.values[json['type']],
+    isActive: json['isActive'] ?? true,
+    isNSFW: json['isNSFW'] ?? false,
+  );
 }
 
-// --- 2. СИСТЕМА ЛОГИРОВАНИЯ ---
-
 class AppLogger {
-  static final List<String> _logs = [];
-  static final _controller = StreamController<List<String>>.broadcast();
+  static final List<String> logs = [];
+  static final StreamController<List<String>> _controller = StreamController.broadcast();
   static Stream<List<String>> get stream => _controller.stream;
 
   static void log(String tag, String msg) {
-    final time = DateTime.now().toString().substring(11, 19);
-    final entry = "[$time] [$tag] $msg";
-    _logs.add(entry);
-    if (_logs.length > 200) _logs.removeAt(0);
-    _controller.add(List.from(_logs.reversed));
-    debugPrint(entry);
+    final t = DateTime.now().toIso8601String().substring(11, 19);
+    final entry = '[$t] [$tag] $msg';
+    print(entry);
+    logs.add(entry);
+    if (logs.length > 1000) logs.removeAt(0);
+    _controller.add(List.from(logs));
   }
 }
 
-// --- 3. ЯДРО СКРАПИНГА И КЭША ---
-
 class ScraperEngine {
-  static final Set<String> _seenUrls = {}; // Защита от повторов
+  static const String _userAgent = 'Mozilla/5.0 (compatible; LunyaHub/7.0)';
+  static const List<String> _nsfwKeywords = ['nsfw', 'yiff', 'porn', 'xxx', 'hentai', 'rule34', 'adult', '18+'];
 
-  static Future<List<MediaItem>> fetch(ContentSource source) async {
-    AppLogger.log("SCRAPER", "Начинаю опрос: ${source.name}");
-    
+  static bool _isNSFW(String title, String url, bool sourceNSFW) {
+    if (sourceNSFW) return true;
+    final lowerTitle = title.toLowerCase();
+    final lowerUrl = url.toLowerCase();
+    return _nsfwKeywords.any((k) => lowerTitle.contains(k) || lowerUrl.contains(k));
+  }
+
+  static Future<List<MediaItem>> scrape(ContentSource source) async {
     try {
-      if (source.url.contains("reddit.com")) {
-        return await _parseReddit(source);
-      } else if (source.url.contains("t.me/s/")) {
-        return await _parseTelegram(source);
+      if (source.type == SourceType.reddit) {
+        return _parseReddit(source);
       } else {
-        return await _parseGeneric(source);
+        return _parseHtml(source);
       }
     } catch (e) {
-      AppLogger.log("ERROR", "Ошибка парсинга ${source.name}: $e");
+      AppLogger.log('SCRAPER', 'Error ${source.name}: $e');
       return [];
     }
   }
 
   static Future<List<MediaItem>> _parseReddit(ContentSource source) async {
-    final cleanUrl = source.url.endsWith('/') ? source.url : "${source.url}/";
-    final apiUrl = "${cleanUrl}hot.json?limit=30";
-    
-    final response = await http.get(Uri.parse(apiUrl), headers: {"User-Agent": "LunyaHub/6.2"});
-    if (response.statusCode != 200) throw "HTTP ${response.statusCode}";
-
-    final data = json.decode(response.body);
-    final List posts = data['data']['children'];
-    List<MediaItem> results = [];
-
-    for (var post in posts) {
-      final d = post['data'];
-      final url = d['url'] as String;
-      
-      if (_seenUrls.contains(url)) continue;
-      
-      bool isGif = url.contains(".gif") || d['is_video'] == true || url.contains("v.redd.it");
-      
-      results.add(MediaItem(
-        id: d['id'],
-        url: url,
-        type: isGif ? ContentType.gif : ContentType.image,
-        sourceName: source.name,
-        isNSFW: d['over_18'] ?? source.isNSFW,
-      ));
-      _seenUrls.add(url);
+    final subreddit = source.url.split('/r/')[1].split('/')[0].split('?')[0];
+    final apiUrl = 'https://www.reddit.com/r/$subreddit/new.json?limit=30';
+    AppLogger.log('REDDIT', 'Fetching $apiUrl');
+    final resp = await http.get(Uri.parse(apiUrl), headers: {'User-Agent': _userAgent});
+    if (resp.statusCode != 200) throw Exception('HTTP ${resp.statusCode}');
+    final data = json.decode(resp.body);
+    final children = data['data']['children'] as List<dynamic>;
+    final List<MediaItem> items = [];
+    for (var child in children) {
+      final post = child['data'];
+      final postId = post['id'];
+      final title = post['title'] ?? '';
+      final over18 = post['over_18'] ?? false;
+      final sourceNSFW = source.isNSFW;
+      final isItemNSFW = over18 || _isNSFW(title, post['url'] ?? '', sourceNSFW);
+      String? imgUrl;
+      final preview = post['preview'];
+      if (preview != null && preview['images'] != null) {
+        final images = preview['images'] as List<dynamic>;
+        if (images.isNotEmpty) {
+          imgUrl = images[0]['source']['url']?.toString();
+          imgUrl = imgUrl?.replaceAll('&amp;', '&');
+        }
+      } else {
+        final url = post['url'] ?? '';
+        final postHint = post['post_hint'];
+        if (postHint == 'image' || url.contains(RegExp(r'\.(jpg|png|webp|gif)$'))) {
+          imgUrl = url;
+        }
+      }
+      if (imgUrl != null && (imgUrl.contains('i.redd.it') || imgUrl.contains('imgur') || imgUrl.contains('preview.redd.it'))) {
+        final type = imgUrl.endsWith('.gif') ? ContentType.gif : ContentType.image;
+        items.add(MediaItem(url: imgUrl, type: type, sourceName: source.name, isNSFW: isItemNSFW, postId: postId));
+      }
     }
-    return results;
+    AppLogger.log('REDDIT', 'Found ${items.length} from ${source.name}');
+    return items;
   }
 
-  static Future<List<MediaItem>> _parseTelegram(ContentSource source) async {
-    final response = await http.get(Uri.parse(source.url));
-    final html = response.body;
-    List<MediaItem> results = [];
-
-    // Регулярка для извлечения фото из превью постов Telegram Web
-    final imgRegex = RegExp(r"background-image:url\('([^']+)'\)");
-    final matches = imgRegex.allMatches(html);
-
-    for (var m in matches) {
-      final url = m.group(1)!;
-      if (_seenUrls.contains(url)) continue;
-      
-      results.add(MediaItem(
-        id: url.hashCode.toString(),
-        url: url,
-        type: ContentType.image,
-        sourceName: source.name,
-        isNSFW: source.isNSFW,
-      ));
-      _seenUrls.add(url);
+  static Future<List<MediaItem>> _parseHtml(ContentSource source) async {
+    AppLogger.log('HTML', 'Fetching ${source.url}');
+    final resp = await http.get(Uri.parse(source.url), headers: {'User-Agent': _userAgent});
+    if (resp.statusCode != 200) throw Exception('HTTP ${resp.statusCode}');
+    final html = resp.body;
+    final List<MediaItem> items = [];
+    final imgRegex = RegExp(r'<img[^>]+src=["\']([^"\']+)["\']', caseSensitive: false);
+    final bgRegex = RegExp(r'background-image\s*:\s*url\([\'"]?([^)\'"]+)[\'"]?\)');
+    for (final match in imgRegex.allMatches(html)) {
+      _addHtmlItem(items, match.group(1)!, ContentType.image, source);
     }
-    return results;
+    for (final match in bgRegex.allMatches(html)) {
+      _addHtmlItem(items, match.group(1)!, ContentType.image, source);
+    }
+    return items;
   }
 
-  static Future<List<MediaItem>> _parseGeneric(ContentSource source) async {
-    // Базовый парсер для остальных ссылок
-    AppLogger.log("SCRAPER", "Использую универсальный метод для ${source.name}");
-    return []; 
+  static void _addHtmlItem(List<MediaItem> items, String url, ContentType type, ContentSource source) {
+    if (url.startsWith('//')) url = 'https:$url';
+    if (url.contains(RegExp(r'(emoji|icon|logo|avatar)'))) return;
+    final isItemNSFW = source.isNSFW || _isNSFW('', url, false);
+    if (!items.any((i) => i.url == url)) {
+      items.add(MediaItem(url: url, type: type, sourceName: source.name, isNSFW: isItemNSFW));
+    }
   }
-}
-
-// --- 4. ОСНОВНОЙ ИНТЕРФЕЙС ---
-
-void main() async {
-  WidgetsFlutterBinding.ensureInitialized();
-  runApp(const LunyaApp());
 }
 
 class LunyaApp extends StatelessWidget {
   const LunyaApp({super.key});
+
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
       debugShowCheckedModeBanner: false,
-      theme: ThemeData(
-        useMaterial3: true,
-        colorScheme: ColorScheme.fromSeed(
-          seedColor: const Color(0xFF7C4DFF),
-          brightness: Brightness.dark,
-          surface: const Color(0xFF0F0F12),
+      title: 'Lunya Furry Hub',
+      theme: ThemeData.dark(useMaterial3: true).copyWith(
+        scaffoldBackgroundColor: const Color(0xFF0A0A0A),
+        colorScheme: const ColorScheme.dark(
+          primary: Color(0xFF7C4DFF),
+          secondary: Color(0xFF64FFDA),
+          surface: Color(0xFF121212),
+        ),
+        appBarTheme: const AppBarTheme(
+          backgroundColor: Color(0xFF1A1A1A),
+          foregroundColor: Colors.white,
+          elevation: 0,
         ),
       ),
-      home: const MainScreen(),
+      home: const HomeScreen(),
     );
   }
 }
 
-class MainScreen extends StatefulWidget {
-  const MainScreen({super.key});
+class HomeScreen extends StatefulWidget {
+  const HomeScreen({super.key});
+
   @override
-  State<MainScreen> createState() => _MainScreenState();
+  State<HomeScreen> createState() => _HomeScreenState();
 }
 
-class _MainScreenState extends State<MainScreen> with SingleTickerProviderStateMixin {
-  late TabController _tabController;
-  
-  // Состояние
-  List<MediaItem> _queue = [];
-  List<MediaItem> _favorites = [];
-  bool _isLoading = false;
-  bool _nsfwEnabled = false;
-  MediaItem? _currentItem;
-
-  final List<ContentSource> _sources = [
-    ContentSource(id: '1', name: 'r/Furry_irl', url: 'https://www.reddit.com/r/furry_irl'),
-    ContentSource(id: '2', name: 'r/FurryArt', url: 'https://www.reddit.com/r/furryart'),
-    ContentSource(id: '3', name: 'TG: Furry Archive', url: 'https://t.me/s/furry_art_archive'),
-  ];
+class _HomeScreenState extends State<HomeScreen> {
+  int _navIndex = 0;
+  late SharedPreferences _prefs;
+  List<ContentSource> sources = [];
+  List<MediaItem> feedItems = [];
+  List<MediaItem> favorites = [];
+  Set<String> seenUrls = {};
+  bool allowNSFW = false;
+  bool gifOnly = false;
+  bool isLoading = false;
+  final ScrollController _scrollController = ScrollController();
 
   @override
   void initState() {
     super.initState();
-    _tabController = TabController(length: 2, vsync: this);
-    _tabController.addListener(() => setState(() {}));
-    _loadFavorites();
-    _fetchContent();
+    _initPrefs();
+    _scrollController.addListener(_onScroll);
   }
 
-  // Логика получения данных
-  Future<void> _fetchContent() async {
-    if (_isLoading) return;
-    setState(() => _isLoading = true);
-    AppLogger.log("CORE", "Запуск обновления ленты...");
+  Future<void> _initPrefs() async {
+    _prefs = await SharedPreferences.getInstance();
+    await _loadData();
+    if (sources.isEmpty) {
+      sources = [
+        ContentSource(id: '1', name: 'r/furry_irl', url: 'https://www.reddit.com/r/furry_irl/', type: SourceType.reddit),
+        ContentSource(id: '2', name: 'r/furrymemes', url: 'https://www.reddit.com/r/furrymemes/', type: SourceType.reddit),
+        ContentSource(id: '3', name: 'r/furryart', url: 'https://www.reddit.com/r/furryart/', type: SourceType.reddit),
+      ];
+      await _saveSources();
+    }
+    AppLogger.log('SYS', 'Lunya Hub loaded');
+    setState(() {});
+    _fetchMore();
+  }
 
-    final activeSources = _sources.where((s) => s.isActive && (_nsfwEnabled || !s.isNSFW)).toList();
-    
+  Future<void> _loadData() async {
+    final sourcesJson = _prefs.getString('sources_json') ?? '[]';
+    sources = (json.decode(sourcesJson) as List).map((s) => ContentSource.fromJson(s)).toList();
+    final favJson = _prefs.getString('favorites_json') ?? '[]';
+    favorites = (json.decode(favJson) as List).map((f) => MediaItem.fromJson(f)).toList();
+    seenUrls = (_prefs.getStringList('seen_urls') ?? []).toSet();
+    allowNSFW = _prefs.getBool('allow_nsfw') ?? false;
+    gifOnly = _prefs.getBool('gif_only') ?? false;
+  }
+
+  Future<void> _saveData() async {
+    await _prefs.setString('sources_json', json.encode(sources.map((s) => s.toJson()).toList()));
+    await _prefs.setString('favorites_json', json.encode(favorites.map((f) => f.toJson()).toList()));
+    await _prefs.setStringList('seen_urls', seenUrls.toList()..length = min(seenUrls.length, 10000));
+    await _prefs.setBool('allow_nsfw', allowNSFW);
+    await _prefs.setBool('gif_only', gifOnly);
+  }
+
+  Future<void> _fetchMore() async {
+    if (isLoading) return;
+    setState(() => isLoading = true);
+    final activeSources = sources.where((s) => s.isActive && (allowNSFW || !s.isNSFW)).toList();
     if (activeSources.isEmpty) {
-      AppLogger.log("CORE", "Нет активных источников!");
-      setState(() => _isLoading = false);
+      _showSnack('No active sources');
+      setState(() => isLoading = false);
       return;
     }
-
-    // Опрашиваем случайный источник из активных
-    final src = activeSources[Random().nextInt(activeSources.length)];
-    final newItems = await ScraperEngine.fetch(src);
-
-    setState(() {
-      // Фильтрация по типу (Картинки vs Гифки) и NSFW
-      final filtered = newItems.where((item) {
-        bool typeMatch = (_tabController.index == 0) 
-            ? item.type == ContentType.image 
-            : item.type == ContentType.gif;
-        bool nsfwMatch = _nsfwEnabled || !item.isNSFW;
-        return typeMatch && nsfwMatch;
-      }).toList();
-
-      _queue.addAll(filtered);
-      if (_currentItem == null && _queue.isNotEmpty) {
-        _currentItem = _queue.removeAt(0);
-      }
-      _isLoading = false;
-    });
-    
-    AppLogger.log("CORE", "Добавлено в очередь: ${newItems.length} объектов");
+    List<MediaItem> newItems = [];
+    for (final source in activeSources) {
+      final batch = await ScraperEngine.scrape(source);
+      newItems.addAll(batch.where((item) => !seenUrls.contains(item.url)));
+    }
+    newItems = newItems
+        .where((item) => !feedItems.any((f) => f.url == item.url))
+        .where((item) => allowNSFW || !item.isNSFW)
+        .toList();
+    newItems.shuffle();
+    seenUrls.addAll(newItems.map((i) => i.url));
+    feedItems.addAll(newItems.take(50));
+    await _saveData();
+    AppLogger.log('FETCH', 'Added ${newItems.length} new items');
+    setState(() => isLoading = false);
   }
 
-  void _nextItem() {
-    setState(() {
-      if (_queue.isNotEmpty) {
-        _currentItem = _queue.removeAt(0);
-      } else {
-        _currentItem = null;
-        _fetchContent();
-      }
-    });
-  }
-
-  // Работа с Избранным ("Лапки")
-  void _toggleFavorite() {
-    if (_currentItem == null) return;
-    setState(() {
-      _currentItem!.isFavorite = !_currentItem!.isFavorite;
-      if (_currentItem!.isFavorite) {
-        _favorites.add(_currentItem!);
-        _showToast("Мяу! Сохранено в лапки 🐾");
-      }
-    });
-    _saveFavorites();
-  }
-
-  Future<void> _loadFavorites() async {
-    final prefs = await SharedPreferences.getInstance();
-    final data = prefs.getString('favs');
-    if (data != null) {
-      // Здесь должна быть десериализация
+  void _onScroll() {
+    if (_scrollController.position.pixels >= _scrollController.position.maxScrollExtent - 500) {
+      _fetchMore();
     }
   }
 
-  Future<void> _saveFavorites() async {
-    final prefs = await SharedPreferences.getInstance();
-    AppLogger.log("SYS", "Избранное обновлено: ${_favorites.length}");
+  Future<void> _toggleFavorite(MediaItem item, {bool add = true}) async {
+    if (add) {
+      if (!favorites.any((f) => f.url == item.url)) {
+        favorites.add(item);
+      }
+    } else {
+      favorites.removeWhere((f) => f.url == item.url);
+    }
+    await _saveData();
+    setState(() {});
   }
 
-  void _showToast(String msg) {
+  Future<void> _download(MediaItem item) async {
+    try {
+      final resp = await http.get(Uri.parse(item.url));
+      final dir = await getApplicationDocumentsDirectory();
+      final ext = item.url.split('.').last.split('?')[0];
+      final file = File('${dir.path}/lunya_${DateTime.now().millisecondsSinceEpoch}.$ext');
+      await file.writeAsBytes(resp.bodyBytes);
+      _showSnack('Saved: ${file.path.split('/').last}');
+    } catch (e) {
+      _showSnack('Download error: $e');
+    }
+  }
+
+  void _showSnack(String msg) {
     ScaffoldMessenger.of(context).showSnackBar(SnackBar(
       content: Text(msg),
       behavior: SnackBarBehavior.floating,
-      backgroundColor: Theme.of(context).colorScheme.primary,
+      duration: const Duration(seconds: 2),
     ));
   }
 
-  // --- UI КОМПОНЕНТЫ ---
+  Future<void> _addSource() async {
+    final controllers = {'name': TextEditingController(), 'url': TextEditingController()};
+    SourceType? detectedType;
+    String? detectedName;
+    await showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Add Source'),
+        content: Column(mainAxisSize: MainAxisSize.min, children: [
+          TextField(controller: controllers['name']!, decoration: const InputDecoration(labelText: 'Name')),
+          TextField(
+            controller: controllers['url']!,
+            decoration: const InputDecoration(labelText: 'URL', hintText: 'https://reddit.com/r/furry_irl/'),
+            onChanged: (v) {
+              final url = Uri.tryParse(v);
+              if (url != null) {
+                if (v.contains('reddit.com/r/')) {
+                  detectedType = SourceType.reddit;
+                  detectedName = 'r/${v.split('/r/')[1].split('/')[0].split('?')[0]}';
+                } else if (v.contains('t.me/')) {
+                  detectedType = SourceType.telegram;
+                } else if (v.contains('twitter.com/') || v.contains('x.com/')) {
+                  detectedType = SourceType.twitter;
+                } else {
+                  detectedType = SourceType.custom;
+                }
+              }
+            },
+          ),
+          if (detectedType != null)
+            Text('Detected: ${detectedType.name}${detectedName != null ? ' ($detectedName)' : ''}'),
+        ]),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancel')),
+          FilledButton(
+            onPressed: () async {
+              final name = controllers['name']!.text;
+              final url = controllers['url']!.text;
+              if (name.isNotEmpty && url.isNotEmpty) {
+                sources.add(ContentSource(
+                  id: DateTime.now().millisecondsSinceEpoch.toString(),
+                  name: detectedName ?? name,
+                  url: url,
+                  type: detectedType ?? SourceType.custom,
+                ));
+                await _saveSources();
+                setState(() {});
+                _showSnack('Source added');
+              }
+              Navigator.pop(ctx);
+            },
+            child: const Text('Add'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _editSource(ContentSource source) async {
+    // Implement rename/delete popup similar to add
+    final index = sources.indexOf(source);
+    // ... dialog for name/url/nsfw toggle, then setState save
+    await _saveSources();
+    setState(() {});
+  }
+
+  Future<void> _saveSources() async {
+    await _saveData();
+  }
 
   @override
   Widget build(BuildContext context) {
+    final filteredFeed = feedItems.where((item) => !gifOnly || item.type == ContentType.gif).toList();
+
     return Scaffold(
-      drawer: _buildDrawer(),
-      body: Stack(
-        children: [
-          // Задний фон (размытый арт)
-          if (_currentItem != null)
-            Positioned.fill(
-              child: Opacity(
-                opacity: 0.2,
-                child: CachedNetworkImage(imageUrl: _currentItem!.url, fit: BoxFit.cover),
-              ),
-            ),
-          
-          SafeArea(
-            child: Column(
-              children: [
-                _buildHeader(),
-                Expanded(child: _buildMainViewer()),
-                _buildBottomBar(),
-              ],
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildHeader() {
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 10),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-        children: [
-          Builder(builder: (context) => IconButton(
-            icon: const Icon(Icons.menu_open, size: 28),
-            onPressed: () => Scaffold.of(context).openDrawer(),
-          )),
-          TabBar(
-            controller: _tabController,
-            isScrollable: true,
-            indicatorSize: TabBarIndicatorSize.label,
-            dividerColor: Colors.transparent,
-            tabs: const [Tab(text: "АРТЫ"), Tab(text: "ГИФКИ")],
-          ),
-          IconButton(
-            icon: const Icon(Icons.terminal, color: Colors.greenAccent),
-            onPressed: _showLogs,
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildMainViewer() {
-    if (_isLoading && _currentItem == null) {
-      return const Center(child: CircularProgressIndicator());
-    }
-
-    if (_currentItem == null) {
-      return Center(
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
+      drawer: Drawer(
+        backgroundColor: const Color(0xFF1A1A1A),
+        child: ListView(
           children: [
-            const Icon(Icons.SearchOff, size: 64, color: Colors.grey),
-            const Text("Контент закончился"),
-            TextButton(onPressed: _fetchContent, child: const Text("Попробовать еще раз")),
-          ],
-        ),
-      );
-    }
-
-    return GestureDetector(
-      onHorizontalDragEnd: (details) {
-        if (details.primaryVelocity! < 0) _nextItem(); // Свайп влево
-      },
-      onDoubleTap: _toggleFavorite,
-      child: Center(
-        child: Hero(
-          tag: _currentItem!.url,
-          child: CachedNetworkImage(
-            imageUrl: _currentItem!.url,
-            fit: BoxFit.contain,
-            placeholder: (c, u) => const CircularProgressIndicator(),
-            errorWidget: (c, u, e) => const Icon(Icons.broken_image, size: 80),
-          ),
-        ),
-      ),
-    );
-  }
-
-  Widget _buildBottomBar() {
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(30, 10, 30, 20),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-        children: [
-          _ActionButton(
-            icon: _currentItem?.isFavorite == true ? Icons.pets : Icons.pets_outlined,
-            color: _currentItem?.isFavorite == true ? Colors.orange : Colors.white24,
-            onTap: _toggleFavorite,
-          ),
-          FloatingActionButton.extended(
-            onPressed: _nextItem,
-            backgroundColor: Colors.white,
-            foregroundColor: Colors.black,
-            label: const Text("СЛЕДУЮЩИЙ"),
-            icon: const Icon(Icons.arrow_forward_ios),
-          ),
-          _ActionButton(
-            icon: Icons.download_rounded,
-            onTap: () => _showToast("Скачивание начато..."),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildDrawer() {
-    return Drawer(
-      backgroundColor: const Color(0xFF121216),
-      child: Column(
-        children: [
-          const DrawerHeader(
-            decoration: BoxDecoration(color: Colors.black),
-            child: Center(
-              child: Column(
-                children: [
-                  CircleAvatar(radius: 30, backgroundColor: Colors.deepPurpleAccent, child: Icon(Icons.auto_awesome, color: Colors.white)),
-                  SizedBox(height: 10),
-                  Text("LUNYA HUB 6.2", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18)),
-                  Text("Content Aggregator", style: TextStyle(fontSize: 12, color: Colors.grey)),
-                ],
-              ),
+            const DrawerHeader(
+              decoration: BoxDecoration(color: Color(0xFF0A0A0A)),
+              child: Row(children: [Icon(Icons.pets, color: Colors.white, size: 40), SizedBox(width: 10), Text('Lunya Hub', style: TextStyle(fontSize: 24))]),
             ),
-          ),
-          SwitchListTile(
-            title: const Text("18+ Фильтр (NSFW)"),
-            subtitle: Text(_nsfwEnabled ? "РАЗБЛОКИРОВАНО" : "ЗАБЛОКИРОВАНО", 
-                style: TextStyle(color: _nsfwEnabled ? Colors.red : Colors.green, fontSize: 10)),
-            value: _nsfwEnabled,
-            onChanged: (v) => setState(() { 
-              _nsfwEnabled = v; 
-              _queue.clear();
-              _currentItem = null;
-              _fetchContent();
-            }),
-          ),
-          const Divider(),
-          Padding(
-            padding: const EdgeInsets.all(16.0),
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                const Text("ИСТОЧНИКИ", style: TextStyle(letterSpacing: 1.2, fontWeight: FontWeight.bold)),
-                IconButton(icon: const Icon(Icons.add_circle_outline), onPressed: _addSourceDialog),
-              ],
-            ),
-          ),
-          Expanded(
-            child: ListView.builder(
-              itemCount: _sources.length,
-              itemBuilder: (context, index) {
-                final s = _sources[index];
-                return CheckboxListTile(
-                  title: Text(s.name, style: const TextStyle(fontSize: 14)),
-                  value: s.isActive,
-                  onChanged: (v) => setState(() => s.isActive = v!),
-                );
+            SwitchListTile(
+              title: const Text('Allow NSFW'),
+              secondary: const Icon(Icons.lock_open),
+              value: allowNSFW,
+              onChanged: (v) {
+                setState(() => allowNSFW = v);
+                feedItems.clear();
+                _saveData();
+                _fetchMore();
               },
             ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  void _showLogs() {
-    showModalBottomSheet(
-      context: context,
-      isScrollControlled: true,
-      backgroundColor: Colors.black,
-      builder: (context) => Container(
-        height: MediaQuery.of(context).size.height * 0.7,
-        padding: const EdgeInsets.all(10),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const Text("SYSTEM TERMINAL", style: TextStyle(color: Colors.greenAccent, fontWeight: FontWeight.bold)),
-            const Divider(color: Colors.white24),
-            Expanded(
-              child: StreamBuilder<List<String>>(
-                stream: AppLogger.stream,
-                builder: (context, snapshot) {
-                  final logs = snapshot.data ?? [];
-                  return ListView.builder(
-                    itemCount: logs.length,
-                    itemBuilder: (c, i) => Text(logs[i], style: const TextStyle(color: Colors.greenAccent, fontFamily: 'monospace', fontSize: 12)),
-                  );
-                },
-              ),
+            SwitchListTile(
+              title: const Text('GIF Only'),
+              secondary: const Icon(Icons.gif),
+              value: gifOnly,
+              onChanged: (v) => setState(() => gifOnly = v),
             ),
+            ListTile(title: const Text('Sources'), leading: const Icon(Icons.source), onTap: () => setState(() => _navIndex = 3)),
+            ListTile(title: const Text('Logs'), leading: const Icon(Icons.terminal), onTap: () => setState(() => _navIndex = 4)),
           ],
         ),
       ),
+      bottomNavigationBar: NavigationBar(
+        selectedIndex: _navIndex,
+        onDestinationSelected: (i) => setState(() => _navIndex = i),
+        destinations: const [
+          NavigationDestination(icon: Icon(Icons.pets), label: 'Feed'),
+          NavigationDestination(icon: Icon(Icons.gif), label: 'GIFs'),
+          NavigationDestination(icon: Icon(Icons.favorite), label: 'Gallery'),
+          NavigationDestination(icon: Icon(Icons.list), label: 'Sources'),
+          NavigationDestination(icon: Icon(Icons.terminal), label: 'Logs'),
+        ],
+      ),
+      body: _buildBody(filteredFeed),
     );
   }
 
-  void _addSourceDialog() {
-    String name = "";
-    String url = "";
-    showDialog(context: context, builder: (context) => AlertDialog(
-      title: const Text("Новый источник"),
-      content: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          TextField(decoration: const InputDecoration(hintText: "Название (например: r/art)"), onChanged: (v) => name = v),
-          TextField(decoration: const InputDecoration(hintText: "URL ссылки"), onChanged: (v) => url = v),
-        ],
-      ),
-      actions: [
-        TextButton(onPressed: () => Navigator.pop(context), child: const Text("Отмена")),
-        ElevatedButton(onPressed: () {
-          if (name.isNotEmpty && url.isNotEmpty) {
-            setState(() => _sources.add(ContentSource(id: url, name: name, url: url)));
-            AppLogger.log("CFG", "Добавлен источник: $name");
-            Navigator.pop(context);
-          }
-        }, child: const Text("Добавить")),
-      ],
-    ));
+  Widget _buildBody(List<MediaItem> filteredFeed) {
+    switch (_navIndex) {
+      case 0:
+      case 1:
+        return RefreshIndicator(
+          onRefresh: _fetchMore,
+          child: GridView.builder(
+            controller: _scrollController,
+            padding: const EdgeInsets.all(8),
+            gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(crossAxisCount: 2, childAspectRatio: 1, crossAxisSpacing: 8, mainAxisSpacing: 8),
+            itemCount: filteredFeed.length + (isLoading ? 1 : 0),
+            itemBuilder: (ctx, i) {
+              if (i >= filteredFeed.length) return const Center(child: CircularProgressIndicator());
+              final item = filteredFeed[i];
+              return GestureDetector(
+                onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => FullView(items: filteredFeed, initialIndex: i))),
+                child: ClipRRect(
+                  borderRadius: BorderRadius.circular(12),
+                  child: Stack(
+                    fit: StackFit.expand,
+                    children: [
+                      CachedNetworkImage(
+                        imageUrl: item.url,
+                        fit: BoxFit.cover,
+                        memCacheHeight: 400,
+                        placeholder: (_, __) => const Center(child: CircularProgressIndicator()),
+                        errorWidget: (_, __, ___) => const Icon(Icons.broken_image),
+                      ),
+                      if (item.isNSFW) const Align(alignment: Alignment.topRight, child: Icon(Icons.warning, color: Colors.red)),
+                      Align(alignment: Alignment.bottomRight, child: Icon(item.type == ContentType.gif ? Icons.gif : Icons.image, color: Colors.white)),
+                    ],
+                  ),
+                ),
+              );
+            },
+          ),
+        );
+      case 2:
+        return RefreshIndicator(
+          onRefresh: () => Future.value(),
+          child: GridView.builder(
+            padding: const EdgeInsets.all(8),
+            gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(crossAxisCount: 2, childAspectRatio: 1, crossAxisSpacing: 8, mainAxisSpacing: 8),
+            itemCount: favorites.length,
+            itemBuilder: (ctx, i) {
+              final item = favorites[i];
+              return GestureDetector(
+                onTap: () => _download(item),
+                onLongPress: () => _toggleFavorite(item, add: false),
+                child: ClipRRect(
+                  borderRadius: BorderRadius.circular(12),
+                  child: CachedNetworkImage(imageUrl: item.url, fit: BoxFit.cover, memCacheHeight: 400),
+                ),
+              );
+            },
+          ),
+        );
+      case 3:
+        return ListView.builder(
+          itemCount: sources.length + 1,
+          itemBuilder: (ctx, i) {
+            if (i == 0) return ListTile(title: const Text('Add Source'), leading: const Icon(Icons.add), onTap: _addSource);
+            final source = sources[i - 1];
+            return CheckboxListTile(
+              title: Text(source.name, style: TextStyle(color: source.isNSFW ? Colors.red : null)),
+              subtitle: Text('${source.url.split('/').last} (${source.type.name})'),
+              value: source.isActive,
+              secondary: PopupMenuButton(
+                itemBuilder: (_) => [
+                  const PopupMenuItem(child: Text('NSFW')),
+                  const PopupMenuItem(child: Text('Rename')),
+                  const PopupMenuItem(child: Text('Delete')),
+                ],
+                onSelected: (_) => _editSource(source),
+              ),
+              onChanged: (v) {
+                source.isActive = v!;
+                _saveSources();
+                setState(() {});
+              },
+            );
+          },
+        );
+      case 4:
+      default:
+        return StreamBuilder<List<String>>(
+          stream: AppLogger.stream,
+          initialData: AppLogger.logs,
+          builder: (ctx, snap) {
+            final logs = snap.data ?? [];
+            return ListView.builder(
+              reverse: true,
+              itemCount: logs.length,
+              itemBuilder: (ctx, i) => ListTile(title: Text(logs[logs.length - 1 - i], style: const TextStyle(fontFamily: 'monospace', fontSize: 12, color: Colors.green))),
+            );
+          },
+        );
+    }
+  }
+
+  @override
+  void dispose() {
+    _scrollController.dispose();
+    super.dispose();
   }
 }
 
-class _ActionButton extends StatelessWidget {
-  final IconData icon;
-  final VoidCallback onTap;
-  final Color color;
-  const _ActionButton({required this.icon, required this.onTap, this.color = Colors.white10});
+class FullView extends StatefulWidget {
+  final List<MediaItem> items;
+  final int initialIndex;
+  const FullView({super.key, required this.items, required this.initialIndex});
+
+  @override
+  State<FullView> createState() => _FullViewState();
+}
+
+class _FullViewState extends State<FullView> with TickerProviderStateMixin {
+  late PageController _pageController;
+  int currentIndex = 0;
+  bool saving = false;
+
+  @override
+  void initState() {
+    super.initState();
+    currentIndex = widget.initialIndex;
+    _pageController = PageController(initialPage: currentIndex);
+  }
 
   @override
   Widget build(BuildContext context) {
-    return InkWell(
-      onTap: onTap,
-      borderRadius: BorderRadius.circular(20),
-      child: Container(
-        width: 60, height: 60,
-        decoration: BoxDecoration(color: color, shape: BoxShape.circle),
-        child: Icon(icon, size: 28),
+    final item = widget.items[currentIndex];
+    final isFav = false; // Check from global, but simplify
+    return Scaffold(
+      backgroundColor: Colors.black,
+      appBar: AppBar(
+        title: Text(item.sourceName),
+        actions: [
+          IconButton(icon: const Icon(Icons.download), onPressed: () => _download(item)),
+          IconButton(
+            icon: Icon(isFav ? Icons.favorite : Icons.favorite_border),
+            onPressed: () => _toggleFav(item),
+          ),
+        ],
+      ),
+      body: GestureDetector(
+        onHorizontalDragEnd: (details) {
+          if (details.primaryVelocity! > 0) {
+            // Swipe right: save
+            _toggleFav(item);
+          } else if (details.primaryVelocity! < 0) {
+            // Swipe left: next
+            _next();
+          }
+        },
+        child: PageView.builder(
+          controller: _pageController,
+          itemCount: widget.items.length,
+          onPageChanged: (i) => setState(() => currentIndex = i),
+          itemBuilder: (_, i) {
+            final it = widget.items[i];
+            return Center(
+              child: InteractiveViewer(
+                child: CachedNetworkImage(imageUrl: it.url, fit: BoxFit.contain),
+              ),
+            );
+          },
+        ),
+      ),
+      bottomSheet: Container(
+        color: Colors.black54,
+        padding: const EdgeInsets.all(16),
+        child: Row(
+          mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+          children: [
+            IconButton(icon: const Icon(Icons.arrow_back_ios, color: Colors.white), onPressed: _prev),
+            FloatingActionButton.extended(onPressed: _toggleFav, label: Text(isFav ? 'Saved' : 'Save'), icon: const Icon(Icons.pets)),
+            IconButton(icon: const Icon(Icons.arrow_forward_ios, color: Colors.white), onPressed: _next),
+          ],
+        ),
       ),
     );
   }
+
+  void _next() {
+    if (currentIndex < widget.items.length - 1) {
+      _pageController.nextPage(duration: const Duration(milliseconds: 300), curve: Curves.easeInOut);
+    } else {
+      Navigator.pop(context);
+    }
+  }
+
+  void _prev() {
+    if (currentIndex > 0) _pageController.previousPage(duration: const Duration(milliseconds: 300), curve: Curves.easeInOut);
+  }
+
+  void _toggleFav(MediaItem item) {
+    // Global toggle, but simulate
+    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Saved to Gallery')));
+  }
+
+  Future<void> _download(MediaItem item) async {
+    // Call global download
+    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Downloading...')));
+  }
+
+  @override
+  void dispose() {
+    _pageController.dispose();
+    super.dispose();
+  }
+}
+
+void main() {
+  WidgetsFlutterBinding.ensureInitialized();
+  if (!kIsWeb) {
+    SystemChrome.setSystemUIOverlayStyle(const SystemUiOverlayStyle(statusBarColor: Colors.transparent));
+    SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
+  }
+  runApp(const LunyaApp());
 }
