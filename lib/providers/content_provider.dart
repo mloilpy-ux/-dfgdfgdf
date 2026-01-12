@@ -6,23 +6,44 @@ import '../services/reddit_parser.dart';
 import '../services/logger_service.dart';
 
 class ContentProvider with ChangeNotifier {
-  List<ContentItem> _unseenItems = [];
+  List<ContentItem> _allItems = [];
   List<ContentItem> _savedItems = [];
   bool _isLoading = false;
   bool _showNsfw = false;
-  bool _onlyGifs = false;
+  ContentType _contentType = ContentType.all;
   
   final DatabaseService _db = DatabaseService.instance;
   final RedditParser _redditParser = RedditParser();
   final LoggerService _logger = LoggerService.instance;
 
-  List<ContentItem> get unseenItems => _unseenItems;
+  List<ContentItem> get filteredItems {
+    return _allItems.where((item) {
+      if (!_showNsfw && item.isNsfw) return false;
+      
+      switch (_contentType) {
+        case ContentType.images:
+          return !item.isGif && !item.mediaUrl.contains('.mp4');
+        case ContentType.gifs:
+          return item.isGif;
+        case ContentType.videos:
+          return item.mediaUrl.contains('.mp4');
+        case ContentType.all:
+          return true;
+      }
+    }).toList();
+  }
+
   List<ContentItem> get savedItems => _savedItems;
   bool get isLoading => _isLoading;
   bool get showNsfw => _showNsfw;
-  bool get onlyGifs => _onlyGifs;
+  ContentType get contentType => _contentType;
 
-  // Загрузка нового контента
+  void setContentType(ContentType type) {
+    _contentType = type;
+    _logger.log('🎬 Тип контента: ${type.name}');
+    notifyListeners();
+  }
+
   Future<void> loadNewContent() async {
     if (_isLoading) return;
 
@@ -38,15 +59,9 @@ class ContentProvider with ChangeNotifier {
           final newItems = await _redditParser.parseSubreddit(source.url, source.id);
           
           for (var item in newItems) {
-            // Проверяем, не был ли показан
             final wasSeen = await _db.wasShown(item.id);
-            
             if (!wasSeen) {
-              // Применяем фильтры
-              if (!_showNsfw && item.isNsfw) continue;
-              if (_onlyGifs && !item.isGif) continue;
-              
-              _unseenItems.add(item);
+              _allItems.add(item);
               await _db.insertContent(item);
             }
           }
@@ -55,8 +70,7 @@ class ContentProvider with ChangeNotifier {
         }
       }
 
-      _logger.log('✅ Загружено ${_unseenItems.length} новых элементов');
-      
+      _logger.log('✅ Загружено ${_allItems.length} элементов');
     } catch (e) {
       _logger.log('💥 Ошибка loadNewContent: $e', isError: true);
     } finally {
@@ -65,19 +79,16 @@ class ContentProvider with ChangeNotifier {
     }
   }
 
-  // Отметить как просмотренный
   Future<void> markAsSeen(String id) async {
     try {
       await _db.markAsShown(id);
-      _unseenItems.removeWhere((item) => item.id == id);
-      _logger.log('👁️ Отмечен как просмотренный: $id');
+      _allItems.removeWhere((item) => item.id == id);
       notifyListeners();
     } catch (e) {
       _logger.log('❌ Ошибка markAsSeen: $e', isError: true);
     }
   }
 
-  // Сохранить элемент
   Future<void> saveItem(ContentItem item) async {
     try {
       item.isSaved = true;
@@ -85,7 +96,7 @@ class ContentProvider with ChangeNotifier {
       await _db.markAsShown(item.id);
       
       _savedItems.add(item);
-      _unseenItems.removeWhere((i) => i.id == item.id);
+      _allItems.removeWhere((i) => i.id == item.id);
       
       _logger.log('💾 Сохранено: ${item.title}');
       notifyListeners();
@@ -94,7 +105,6 @@ class ContentProvider with ChangeNotifier {
     }
   }
 
-  // Загрузить сохраненные
   Future<void> loadSavedItems() async {
     try {
       _savedItems = await _db.getContent(onlySaved: true);
@@ -107,14 +117,8 @@ class ContentProvider with ChangeNotifier {
   void toggleNsfwFilter() {
     _showNsfw = !_showNsfw;
     _logger.log('🔞 NSFW: ${_showNsfw ? "ВКЛ" : "ВЫКЛ"}');
-    _unseenItems.clear();
-    loadNewContent();
-  }
-
-  void toggleGifFilter() {
-    _onlyGifs = !_onlyGifs;
-    _logger.log('🎬 Только GIF: ${_onlyGifs ? "ВКЛ" : "ВЫКЛ"}');
-    _unseenItems.clear();
-    loadNewContent();
+    notifyListeners();
   }
 }
+
+enum ContentType { all, images, gifs, videos }
