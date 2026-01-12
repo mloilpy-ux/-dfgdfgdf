@@ -1,3 +1,4 @@
+// lib/models/source_type.dart
 enum SourceType {
   reddit,
   twitter,
@@ -19,11 +20,11 @@ extension SourceTypeExtension on SourceType {
   String get icon {
     switch (this) {
       case SourceType.reddit:
-        return '🐾'; // Reddit icon
+        return '🐾';
       case SourceType.twitter:
-        return '🐦'; // Twitter icon
+        return '🐦';
       case SourceType.telegram:
-        return '✈️'; // Telegram icon
+        return '✈️';
     }
   }
 }
