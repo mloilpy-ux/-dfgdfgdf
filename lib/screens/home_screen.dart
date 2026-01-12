@@ -1,114 +1,244 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../providers/content_provider.dart';
-import '../providers/source_provider.dart';
-import '../widgets/content_grid.dart';
-import 'sources_screen.dart';
-import 'logs_screen.dart';
-import 'saved_screen.dart';
+import '../widgets/swipeable_card.dart';
 
 class HomeScreen extends StatefulWidget {
-  const HomeScreen({super.key});
+  const HomeScreen({Key? key}) : super(key: key);
 
   @override
   State<HomeScreen> createState() => _HomeScreenState();
 }
 
 class _HomeScreenState extends State<HomeScreen> {
-  int _selectedIndex = 0;
+  int _currentIndex = 0;
 
   @override
   void initState() {
     super.initState();
-    _loadInitialContent();
-  }
-
-  Future<void> _loadInitialContent() async {
-    final sourceProvider = context.read<SourceProvider>();
-    await sourceProvider.loadSources();
-    
-    final contentProvider = context.read<ContentProvider>();
-    await contentProvider.loadContent(sourceProvider.sources);
+    // Загружаем контент при старте
+    Future.microtask(() {
+      context.read<ContentProvider>().loadNewContent();
+    });
   }
 
   @override
   Widget build(BuildContext context) {
-    final contentProvider = context.watch<ContentProvider>();
-    
     return Scaffold(
       appBar: AppBar(
-        title: const Row(
+        title: const Text('Furry Hub'),
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.filter_list),
+            onPressed: () => _showFilters(context),
+          ),
+          IconButton(
+            icon: const Icon(Icons.settings),
+            onPressed: () {
+              // Навигация к настройкам
+            },
+          ),
+        ],
+      ),
+      body: Consumer<ContentProvider>(
+        builder: (context, provider, _) {
+          if (provider.isLoading && provider.unseenItems.isEmpty) {
+            return const Center(child: CircularProgressIndicator());
+          }
+
+          if (provider.unseenItems.isEmpty) {
+            return Center(
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  const Icon(Icons.check_circle, size: 100, color: Colors.green),
+                  const SizedBox(height: 20),
+                  const Text(
+                    'Весь контент просмотрен!',
+                    style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold),
+                  ),
+                  const SizedBox(height: 10),
+                  const Text('Подгружаем новые арты...'),
+                  const SizedBox(height: 30),
+                  ElevatedButton.icon(
+                    onPressed: () => provider.loadNewContent(),
+                    icon: const Icon(Icons.refresh),
+                    label: const Text('Обновить'),
+                  ),
+                ],
+              ),
+            );
+          }
+
+          return Stack(
+            children: [
+              // Показываем только текущую и следующую карточку для плавности
+              for (int i = _currentIndex; i < _currentIndex + 2 && i < provider.unseenItems.length; i++)
+                SwipeableCard(
+                  key: ValueKey(provider.unseenItems[i].id),
+                  item: provider.unseenItems[i],
+                  index: i,
+                  currentIndex: _currentIndex,
+                  onSwipeLeft: () => _handleSwipe(provider, SwipeDirection.left),
+                  onSwipeRight: () => _handleSwipe(provider, SwipeDirection.right),
+                  onSwipeUp: () => _handleSwipe(provider, SwipeDirection.up),
+                ),
+            ],
+          );
+        },
+      ),
+      bottomNavigationBar: _buildBottomBar(context),
+    );
+  }
+
+  void _handleSwipe(ContentProvider provider, SwipeDirection direction) {
+    final item = provider.unseenItems[_currentIndex];
+
+    switch (direction) {
+      case SwipeDirection.left:
+        // Пропустить - просто отмечаем как показанный
+        provider.markAsSeen(item.id);
+        break;
+      case SwipeDirection.right:
+        // Лайк - сохраняем
+        provider.saveItem(item);
+        break;
+      case SwipeDirection.up:
+        // Открыть полностью
+        _openFullScreen(item);
+        return; // Не двигаем индекс
+    }
+
+    setState(() {
+      _currentIndex++;
+      // Подгружаем новый контент, если осталось мало
+      if (_currentIndex >= provider.unseenItems.length - 3) {
+        provider.loadNewContent();
+      }
+    });
+  }
+
+  void _openFullScreen(item) {
+    // TODO: Открыть полноэкранный просмотр
+    showDialog(
+      context: context,
+      builder: (context) => Dialog.fullscreen(
+        child: Stack(
           children: [
-            Text('🐾'),
-            SizedBox(width: 8),
-            Text('Furry Content Hub'),
+            Center(
+              child: Image.network(item.mediaUrl),
+            ),
+            Positioned(
+              top: 40,
+              right: 20,
+              child: IconButton(
+                icon: const Icon(Icons.close, color: Colors.white, size: 30),
+                onPressed: () => Navigator.pop(context),
+              ),
+            ),
           ],
         ),
-        actions: [
-          // NSFW Toggle
-          IconButton(
-            icon: Icon(contentProvider.showNsfw ? Icons.visibility_off : Icons.visibility),
-            onPressed: contentProvider.toggleNsfwFilter,
-            tooltip: contentProvider.showNsfw ? 'Скрыть NSFW' : 'Показать NSFW',
+      ),
+    );
+  }
+
+  Widget _buildBottomBar(BuildContext context) {
+    final provider = context.watch<ContentProvider>();
+    
+    return Container(
+      padding: const EdgeInsets.symmetric(vertical: 20),
+      decoration: BoxDecoration(
+        color: Theme.of(context).cardColor,
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.1),
+            blurRadius: 10,
           ),
-          // Refresh
+        ],
+      ),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+        children: [
+          // Пропустить
           IconButton(
-            icon: const Icon(Icons.refresh),
-            onPressed: () async {
-              final sources = context.read<SourceProvider>().sources;
-              await contentProvider.loadContent(sources);
-            },
+            icon: const Icon(Icons.close, size: 35, color: Colors.red),
+            onPressed: () => _handleSwipe(provider, SwipeDirection.left),
           ),
-          // Logs
+          // Информация
           IconButton(
-            icon: const Icon(Icons.assignment),
+            icon: const Icon(Icons.info_outline, size: 30, color: Colors.blue),
             onPressed: () {
-              Navigator.push(
-                context,
-                MaterialPageRoute(builder: (_) => const LogsScreen()),
-              );
+              if (provider.unseenItems.isNotEmpty) {
+                _showInfo(provider.unseenItems[_currentIndex]);
+              }
             },
           ),
-        ],
-      ),
-      body: IndexedStack(
-        index: _selectedIndex,
-        children: const [
-          ContentGrid(showOnlyGifs: false),
-          ContentGrid(showOnlyGifs: true),
-          SavedScreen(),
-          SourcesScreen(),
-        ],
-      ),
-      bottomNavigationBar: NavigationBar(
-        selectedIndex: _selectedIndex,
-        onDestinationSelected: (index) {
-          setState(() {
-            _selectedIndex = index;
-          });
-        },
-        destinations: const [
-          NavigationDestination(
-            icon: Icon(Icons.grid_view),
-            label: 'Лента',
-          ),
-          NavigationDestination(
-            icon: Icon(Icons.gif_box),
-            label: 'GIF',
-          ),
-          NavigationDestination(
-            icon: Icon(Icons.favorite),
-            label: 'Сохранённое',
-          ),
-          NavigationDestination(
-            icon: Icon(Icons.source),
-            label: 'Источники',
+          // Лайк
+          IconButton(
+            icon: const Icon(Icons.favorite, size: 35, color: Colors.pink),
+            onPressed: () => _handleSwipe(provider, SwipeDirection.right),
           ),
         ],
       ),
-      floatingActionButton: contentProvider.isLoading
-          ? const CircularProgressIndicator()
-          : null,
+    );
+  }
+
+  void _showInfo(item) {
+    showModalBottomSheet(
+      context: context,
+      builder: (context) => Padding(
+        padding: const EdgeInsets.all(20),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(item.title, style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
+            const SizedBox(height: 10),
+            Text('Автор: ${item.author ?? "Unknown"}'),
+            Text('Источник: ${item.postUrl ?? "N/A"}'),
+            const SizedBox(height: 20),
+            ElevatedButton(
+              onPressed: () {
+                Navigator.pop(context);
+                // Открыть в браузере
+              },
+              child: const Text('Открыть источник'),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  void _showFilters(BuildContext context) {
+    showModalBottomSheet(
+      context: context,
+      builder: (context) => Padding(
+        padding: const EdgeInsets.all(20),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Text('Фильтры', style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
+            const SizedBox(height: 20),
+            SwitchListTile(
+              title: const Text('Показывать NSFW'),
+              value: context.watch<ContentProvider>().showNsfw,
+              onChanged: (value) {
+                context.read<ContentProvider>().toggleNsfwFilter();
+              },
+            ),
+            SwitchListTile(
+              title: const Text('Только GIF'),
+              value: context.watch<ContentProvider>().onlyGifs,
+              onChanged: (value) {
+                context.read<ContentProvider>().toggleGifFilter();
+              },
+            ),
+          ],
+        ),
+      ),
     );
   }
 }
+
+enum SwipeDirection { left, right, up }
