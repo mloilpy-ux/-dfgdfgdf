@@ -4,25 +4,23 @@ publish_to: 'none'
 version: 1.0.0+1
 
 environment:
-  sdk: '>=2.19.0 <4.0.0'
+  sdk: '>=3.0.0 <4.0.0' # Обновим min SDK, раз уж обновляем зависимости
 
 dependencies:
   flutter:
     sdk: flutter
+  
+  # Пакеты (только по одному разу!)
   cupertino_icons: ^1.0.2
   http: ^1.1.0
   async_wallpaper: ^2.0.3
   path_provider: ^2.1.1
   url_launcher: ^6.2.1
-  
-  # Для иконок (обычно есть по умолчанию)
-  cupertino_icons: ^1.0.2
-
 
 dev_dependencies:
   flutter_test:
     sdk: flutter
-  flutter_lints: ^2.0.0
+  flutter_lints: ^3.0.0
 
 flutter:
   uses-material-design: true
