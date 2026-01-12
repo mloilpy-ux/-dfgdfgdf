@@ -19,8 +19,10 @@ pluginManagement {
 
 plugins {
     id "dev.flutter.flutter-plugin-loader" version "1.0.0"
-    id "com.android.application" version "8.7.0" apply false // Стабильная версия AGP
-    id "org.jetbrains.kotlin.android" version "2.0.20" apply false // Обновленный Kotlin
+    // Используем стабильную версию 8.7.0 (она у вас уже есть и работает)
+    id "com.android.application" version "8.7.0" apply false 
+    // ОБНОВЛЕНИЕ: Поднимаем Kotlin до 2.0.20, чтобы убрать Warning
+    id "org.jetbrains.kotlin.android" version "2.0.20" apply false 
 }
 
 include ":app"
