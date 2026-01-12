@@ -3,7 +3,6 @@ import 'package:flutter/services.dart'; // ДЛЯ ВИБРАЦИИ
 import 'package:provider/provider.dart';
 import 'package:wallpaper_manager_plus/wallpaper_manager_plus.dart';
 import 'package:permission_handler/permission_handler.dart';
-import 'package:confetti/confetti.dart'; // flutter pub add confetti
 import 'package:share_plus/share_plus.dart'; // flutter pub add share_plus
 import 'dart:math' as math;
 import '../providers/content_provider.dart';
