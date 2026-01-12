@@ -1,112 +1,50 @@
-import 'source_type.dart';
+import 'package:hive/hive.dart';
 
+part 'content_source.g.dart';
+
+@HiveType(typeId: 1)
+enum SourceType { reddit, twitter, telegram }
+
+@HiveType(typeId: 2)
 class ContentSource {
+  @HiveField(0)
   final String id;
+  @HiveField(1)
   final String name;
+  @HiveField(2)
   final String url;
+  @HiveField(3)
   final SourceType type;
-  final bool isActive;
-  final bool isNsfw;
-  final DateTime addedAt;
-  final DateTime? lastParsed;
-  final int parsedCount;
+  @HiveField(4)
+  bool active;
+  @HiveField(5)
+  bool nsfw;
 
   ContentSource({
     required this.id,
     required this.name,
     required this.url,
     required this.type,
-    bool? isActive,
-    bool? isNsfw,
-    DateTime? addedAt,
-    this.lastParsed,
-    int? parsedCount,
-  })  : isActive = isActive ?? true,
-        isNsfw = isNsfw ?? false,
-        addedAt = addedAt ?? DateTime.now(),
-        parsedCount = parsedCount ?? 0;
+    this.active = true,
+    this.nsfw = false,
+  });
 
-  Map<String, dynamic> toMap() {
-    return {
-      'id': id,
-      'name': name,
-      'url': url,
-      'type': type.name,
-      'isActive': isActive ? 1 : 0,
-      'isNsfw': isNsfw ? 1 : 0,
-      'addedAt': addedAt.toIso8601String(),
-      'lastParsed': lastParsed?.toIso8601String(),
-      'parsedCount': parsedCount,
-    };
-  }
-
-  factory ContentSource.fromMap(Map<String, dynamic> map) {
-    return ContentSource(
-      id: map['id'] as String,
-      name: map['name'] as String,
-      url: map['url'] as String,
-      type: SourceType.values.firstWhere(
-        (e) => e.name == map['type'],
-        orElse: () => SourceType.reddit,
-      ),
-      isActive: (map['isActive'] as int) == 1,
-      isNsfw: (map['isNsfw'] as int) == 1,
-      addedAt: DateTime.parse(map['addedAt'] as String),
-      lastParsed: map['lastParsed'] != null ? DateTime.parse(map['lastParsed'] as String) : null,
-      parsedCount: map['parsedCount'] as int? ?? 0,
-    );
-  }
-
-  ContentSource copyWith({
-    String? id,
-    String? name,
-    String? url,
-    SourceType? type,
-    bool? isActive,
-    bool? isNsfw,
-    DateTime? addedAt,
-    DateTime? lastParsed,
-    int? parsedCount,
-  }) {
-    return ContentSource(
-      id: id ?? this.id,
-      name: name ?? this.name,
-      url: url ?? this.url,
-      type: type ?? this.type,
-      isActive: isActive ?? this.isActive,
-      isNsfw: isNsfw ?? this.isNsfw,
-      addedAt: addedAt ?? this.addedAt,
-      lastParsed: lastParsed ?? this.lastParsed,
-      parsedCount: parsedCount ?? this.parsedCount,
-    );
-  }
-
-  static List<ContentSource> getDefaultSources() {
-    return [
-      ContentSource(
-        id: 'default_1',
-        name: 'r/furry_irl',
-        url: 'https://www.reddit.com/r/furry_irl/',
-        type: SourceType.reddit,
-        isActive: true,
-        isNsfw: false,
-      ),
-      ContentSource(
-        id: 'default_2',
-        name: 'r/furrymemes',
-        url: 'https://www.reddit.com/r/furrymemes/',
-        type: SourceType.reddit,
-        isActive: true,
-        isNsfw: false,
-      ),
-      ContentSource(
-        id: 'default_3',
-        name: 'r/furryart',
-        url: 'https://www.reddit.com/r/furryart/',
-        type: SourceType.reddit,
-        isActive: true,
-        isNsfw: false,
-      ),
-    ];
+  factory ContentSource.fromUrl(String url) {
+    SourceType type;
+    String sub;
+    if (url.contains('reddit.com/r/')) {
+      type = SourceType.reddit;
+      sub = url.split('/r/')[1].split('/')[0].split('?')[0];
+      return ContentSource(id: sub, name: 'r/$sub', url: 'https://www.reddit.com/r/$sub/.json', type: type);
+    } else if (url.contains('twitter.com/') || url.contains('x.com/')) {
+      type = SourceType.twitter;
+      final user = url.split('/').lastWhere((e) => e.isNotEmpty, orElse: () => '');
+      return ContentSource(id: user, name: '@$user', url: url, type: type);
+    } else if (url.contains('t.me/')) {
+      type = SourceType.telegram;
+      final channel = url.split('/').last;
+      return ContentSource(id: channel, name: channel, url: 'https://t.me/s/$channel', type: type);
+    }
+    throw Exception('Unsupported URL');
   }
 }
