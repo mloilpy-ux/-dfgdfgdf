@@ -1,124 +1,33 @@
-import 'package:flutter/material.dart';
-import '../models/content_item.dart';
-import '../models/content_source.dart';
-import '../services/database_service.dart';
-import '../services/reddit_parser.dart';
-import '../services/logger_service.dart';
+import 'package:dio/dio.dart';
+import 'package:gal/gal.dart';
+import 'package:path_provider/path_provider.dart';
+import 'dart:io';
 
-class ContentProvider with ChangeNotifier {
-  List<ContentItem> _allItems = [];
-  List<ContentItem> _savedItems = [];
-  bool _isLoading = false;
-  bool _showNsfw = false;
-  ContentType _contentType = ContentType.all;
-  
-  final DatabaseService _db = DatabaseService.instance;
-  final RedditParser _redditParser = RedditParser();
-  final LoggerService _logger = LoggerService.instance;
-
-  List<ContentItem> get filteredItems {
-    return _allItems.where((item) {
-      if (!_showNsfw && item.isNsfw) return false;
+Future<void> saveImage(String imageUrl) async {
+  try {
+    // Request permission
+    if (await Permission.storage.request().isGranted) {
+      final dir = await getTemporaryDirectory();
+      final filename = imageUrl.split('/').last.replaceAll(RegExp(r'[^\w\.]'), '');
+      final localPath = '${dir.path}/$filename';
       
-      switch (_contentType) {
-        case ContentType.images:
-          return !item.isGif && !item.mediaUrl.contains('.mp4');
-        case ContentType.gifs:
-          return item.isGif;
-        case ContentType.videos:
-          return item.mediaUrl.contains('.mp4');
-        case ContentType.all:
-          return true;
+      // Download
+      await Dio().download(imageUrl, localPath);
+      
+      // Save to gallery
+      final success = await Gal.putImage(localPath);
+      
+      if (success) {
+        addLog('Saved $filename to gallery');
+        // Show SnackBar via context
+      } else {
+        addLog('Failed to save to gallery');
       }
-    }).toList();
-  }
-
-  List<ContentItem> get savedItems => _savedItems;
-  bool get isLoading => _isLoading;
-  bool get showNsfw => _showNsfw;
-  ContentType get contentType => _contentType;
-
-  void setContentType(ContentType type) {
-    _contentType = type;
-    _logger.log('🎬 Тип контента: ${type.name}');
-    notifyListeners();
-  }
-
-  Future<void> loadNewContent() async {
-    if (_isLoading) return;
-
-    _isLoading = true;
-    notifyListeners();
-
-    try {
-      final sources = await _db.getSources();
-      final activeSources = sources.where((s) => s.isActive).toList();
-
-      for (var source in activeSources) {
-        try {
-          final newItems = await _redditParser.parseSubreddit(source.url, source.id);
-          
-          for (var item in newItems) {
-            final wasSeen = await _db.wasShown(item.id);
-            if (!wasSeen) {
-              _allItems.add(item);
-              await _db.insertContent(item);
-            }
-          }
-        } catch (e) {
-          _logger.log('❌ Ошибка загрузки из ${source.name}: $e', isError: true);
-        }
-      }
-
-      _logger.log('✅ Загружено ${_allItems.length} элементов');
-    } catch (e) {
-      _logger.log('💥 Ошибка loadNewContent: $e', isError: true);
-    } finally {
-      _isLoading = false;
-      notifyListeners();
-    }
-  }
-
-  Future<void> markAsSeen(String id) async {
-    try {
-      await _db.markAsShown(id);
-      _allItems.removeWhere((item) => item.id == id);
-      notifyListeners();
-    } catch (e) {
-      _logger.log('❌ Ошибка markAsSeen: $e', isError: true);
-    }
-  }
-
-  Future<void> saveItem(ContentItem item) async {
-    try {
-      item.isSaved = true;
-      await _db.updateContent(item);
-      await _db.markAsShown(item.id);
       
-      _savedItems.add(item);
-      _allItems.removeWhere((i) => i.id == item.id);
-      
-      _logger.log('💾 Сохранено: ${item.title}');
-      notifyListeners();
-    } catch (e) {
-      _logger.log('❌ Ошибка saveItem: $e', isError: true);
+      // Cleanup
+      await File(localPath).delete();
     }
-  }
-
-  Future<void> loadSavedItems() async {
-    try {
-      _savedItems = await _db.getContent(onlySaved: true);
-      notifyListeners();
-    } catch (e) {
-      _logger.log('❌ Ошибка loadSavedItems: $e', isError: true);
-    }
-  }
-
-  void toggleNsfwFilter() {
-    _showNsfw = !_showNsfw;
-    _logger.log('🔞 NSFW: ${_showNsfw ? "ВКЛ" : "ВЫКЛ"}');
-    notifyListeners();
+  } catch (e) {
+    addLog('Download error: $e');
   }
 }
-
-enum ContentType { all, images, gifs, videos }
