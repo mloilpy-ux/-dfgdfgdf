@@ -1,10 +1,10 @@
 import 'package:flutter/foundation.dart';
 import '../models/content_item.dart';
-import '../models/content_source.dart';
 import '../services/database_service.dart';
 import '../services/reddit_parser.dart';
 import '../services/logger_service.dart';
 import 'sources_provider.dart';
+import '../models/content_source.dart';
 
 class ContentProvider with ChangeNotifier {
   final DatabaseService _db = DatabaseService.instance;
@@ -13,7 +13,7 @@ class ContentProvider with ChangeNotifier {
 
   List<ContentItem> _items = [];
   bool _isLoading = false;
-  Set<String> _shownIds = {};
+  final Set<String> _shownIds = {};
 
   List<ContentItem> get items => _items;
   bool get isLoading => _isLoading;
