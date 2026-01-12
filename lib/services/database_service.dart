@@ -2,6 +2,7 @@ import 'package:sqflite/sqflite.dart';
 import 'package:path/path.dart';
 import '../models/content_source.dart';
 import '../models/content_item.dart';
+import '../models/source_type.dart';
 import 'logger_service.dart';
 
 class DatabaseService {
@@ -31,8 +32,9 @@ class DatabaseService {
 
       return await openDatabase(
         path,
-        version: 1,
+        version: 2,
         onCreate: _createDB,
+        onUpgrade: _upgradeDB,
       );
     } catch (e) {
       _logger.log('❌ Ошибка открытия БД: $e', isError: true);
@@ -49,7 +51,10 @@ class DatabaseService {
           url TEXT NOT NULL,
           type TEXT NOT NULL,
           isActive INTEGER NOT NULL DEFAULT 1,
-          addedAt TEXT NOT NULL
+          isNsfw INTEGER NOT NULL DEFAULT 0,
+          addedAt TEXT NOT NULL,
+          lastParsed TEXT,
+          parsedCount INTEGER NOT NULL DEFAULT 0
         )
       ''');
 
@@ -79,6 +84,7 @@ class DatabaseService {
 
       await db.execute('CREATE INDEX idx_content_created ON content(createdAt DESC)');
       await db.execute('CREATE INDEX idx_content_saved ON content(isSaved)');
+      await db.execute('CREATE INDEX idx_sources_active ON sources(isActive)');
 
       await _insertDefaultSources(db);
       
@@ -88,21 +94,20 @@ class DatabaseService {
     }
   }
 
+  Future<void> _upgradeDB(Database db, int oldVersion, int newVersion) async {
+    if (oldVersion < 2) {
+      try {
+        await db.execute('ALTER TABLE sources ADD COLUMN isNsfw INTEGER NOT NULL DEFAULT 0');
+        await db.execute('ALTER TABLE sources ADD COLUMN lastParsed TEXT');
+        await db.execute('ALTER TABLE sources ADD COLUMN parsedCount INTEGER NOT NULL DEFAULT 0');
+      } catch (e) {
+        _logger.log('⚠️ Ошибка обновления БД: $e', isError: false);
+      }
+    }
+  }
+
   Future<void> _insertDefaultSources(Database db) async {
-    final defaultSources = [
-      ContentSource(
-        id: 'default_1',
-        name: 'r/furry_irl',
-        url: 'https://www.reddit.com/r/furry_irl/',
-        type: SourceType.reddit,
-      ),
-      ContentSource(
-        id: 'default_2',
-        name: 'r/furry',
-        url: 'https://www.reddit.com/r/furry/',
-        type: SourceType.reddit,
-      ),
-    ];
+    final defaultSources = ContentSource.getDefaultSources();
 
     for (var source in defaultSources) {
       await db.insert(
