@@ -431,4 +431,374 @@ class _HomeScreenState extends State<HomeScreen> {
       ),
     );
 
-    if (location != null && mounted)
+    if (location != null && mounted) {
+      _applyWallpaper(item, location);
+    }
+  }
+
+  Widget _buildWallpaperOption({
+    required BuildContext context,
+    required IconData icon,
+    required String title,
+    required int location,
+  }) {
+    return ListTile(
+      leading: Icon(icon, color: Colors.orange),
+      title: Text(title, style: const TextStyle(color: Colors.white)),
+      onTap: () => Navigator.pop(context, location),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+      hoverColor: Colors.orange.withOpacity(0.1),
+    );
+  }
+
+  Future<void> _applyWallpaper(ContentItem item, int location) async {
+    // Показываем загрузку
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) => Center(
+        child: Container(
+          padding: const EdgeInsets.all(30),
+          decoration: BoxDecoration(
+            color: Colors.grey[900],
+            borderRadius: BorderRadius.circular(20),
+          ),
+          child: const Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              CircularProgressIndicator(color: Colors.orange),
+              SizedBox(height: 20),
+              Text(
+                'Устанавливаем обои...',
+                style: TextStyle(color: Colors.white, fontSize: 16),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+
+    try {
+      bool result = false;
+      
+      switch (location) {
+        case 1:
+          result = await AsyncWallpaper.setWallpaperFromUrl(
+            item.mediaUrl,
+            AsyncWallpaper.HOME_SCREEN,
+          );
+          break;
+        case 2:
+          result = await AsyncWallpaper.setWallpaperFromUrl(
+            item.mediaUrl,
+            AsyncWallpaper.LOCK_SCREEN,
+          );
+          break;
+        case 3:
+          result = await AsyncWallpaper.setWallpaperFromUrl(
+            item.mediaUrl,
+            AsyncWallpaper.BOTH_SCREENS,
+          );
+          break;
+      }
+
+      if (mounted) {
+        Navigator.pop(context); // Закрываем диалог загрузки
+        
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Row(
+              children: [
+                Icon(
+                  result ? Icons.check_circle : Icons.error,
+                  color: Colors.white,
+                ),
+                const SizedBox(width: 10),
+                Text(
+                  result ? 'Обои установлены!' : 'Ошибка установки обоев',
+                  style: const TextStyle(fontWeight: FontWeight.bold),
+                ),
+              ],
+            ),
+            backgroundColor: result ? Colors.green[700] : Colors.red[700],
+            duration: const Duration(seconds: 2),
+            behavior: SnackBarBehavior.floating,
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+          ),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        Navigator.pop(context); // Закрываем диалог загрузки
+        
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Row(
+              children: [
+                const Icon(Icons.error, color: Colors.white),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Text(
+                    'Ошибка: ${e.toString()}',
+                    style: const TextStyle(fontWeight: FontWeight.bold),
+                  ),
+                ),
+              ],
+            ),
+            backgroundColor: Colors.red[700],
+            duration: const Duration(seconds: 3),
+            behavior: SnackBarBehavior.floating,
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+          ),
+        );
+      }
+    }
+  }
+
+  void _showFullscreen(ContentItem item) {
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => FullscreenViewer(item: item),
+      ),
+    );
+  }
+
+  void _showSettings() {
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.grey[900],
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(25)),
+      ),
+      builder: (context) => Padding(
+        padding: const EdgeInsets.all(20),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            // Заголовок
+            Container(
+              width: 50,
+              height: 5,
+              decoration: BoxDecoration(
+                color: Colors.grey[700],
+                borderRadius: BorderRadius.circular(10),
+              ),
+            ),
+            const SizedBox(height: 20),
+            const Text(
+              'Настройки',
+              style: TextStyle(
+                fontSize: 22,
+                fontWeight: FontWeight.bold,
+                color: Colors.white,
+              ),
+            ),
+            const SizedBox(height: 20),
+            
+            // NSFW фильтр
+            Consumer<ContentProvider>(
+              builder: (context, provider, _) => Container(
+                decoration: BoxDecoration(
+                  color: Colors.grey[850],
+                  borderRadius: BorderRadius.circular(15),
+                ),
+                child: SwitchListTile(
+                  title: const Text(
+                    'Показывать NSFW',
+                    style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
+                  ),
+                  subtitle: const Text(
+                    '18+ контент',
+                    style: TextStyle(color: Colors.grey),
+                  ),
+                  value: provider.showNsfw,
+                  onChanged: (value) => provider.toggleNsfwFilter(),
+                  activeColor: Colors.orange,
+                  secondary: const Icon(Icons.explicit, color: Colors.orange),
+                ),
+              ),
+            ),
+            
+            const SizedBox(height: 15),
+            
+            // Сохранённые
+            Container(
+              decoration: BoxDecoration(
+                color: Colors.grey[850],
+                borderRadius: BorderRadius.circular(15),
+              ),
+              child: ListTile(
+                leading: const Icon(Icons.collections, color: Colors.orange, size: 28),
+                title: const Text(
+                  'Сохранённые',
+                  style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
+                ),
+                trailing: Consumer<ContentProvider>(
+                  builder: (context, provider, _) => Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                    decoration: BoxDecoration(
+                      color: Colors.orange,
+                      borderRadius: BorderRadius.circular(20),
+                    ),
+                    child: Text(
+                      '${provider.savedItems.length}',
+                      style: const TextStyle(
+                        color: Colors.black,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                  ),
+                ),
+                onTap: () {
+                  Navigator.pop(context);
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(builder: (_) => const SavedScreen()),
+                  );
+                },
+              ),
+            ),
+            
+            const SizedBox(height: 20),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+// Полноэкранный просмотр
+class FullscreenViewer extends StatelessWidget {
+  final ContentItem item;
+
+  const FullscreenViewer({Key? key, required this.item}) : super(key: key);
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: Colors.black,
+      body: Stack(
+        children: [
+          Center(
+            child: InteractiveViewer(
+              minScale: 0.5,
+              maxScale: 4.0,
+              child: Image.network(
+                item.mediaUrl,
+                fit: BoxFit.contain,
+                loadingBuilder: (context, child, loadingProgress) {
+                  if (loadingProgress == null) return child;
+                  
+                  return Center(
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        CircularProgressIndicator(
+                          value: loadingProgress.expectedTotalBytes != null
+                              ? loadingProgress.cumulativeBytesLoaded /
+                                  loadingProgress.expectedTotalBytes!
+                              : null,
+                          color: Colors.orange,
+                        ),
+                        const SizedBox(height: 20),
+                        Text(
+                          loadingProgress.expectedTotalBytes != null
+                              ? '${(loadingProgress.cumulativeBytesLoaded / loadingProgress.expectedTotalBytes! * 100).toInt()}%'
+                              : 'Загрузка...',
+                          style: const TextStyle(color: Colors.white),
+                        ),
+                      ],
+                    ),
+                  );
+                },
+                errorBuilder: (context, error, stackTrace) {
+                  return const Center(
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Icon(Icons.error, size: 60, color: Colors.red),
+                        SizedBox(height: 20),
+                        Text(
+                          'Ошибка загрузки изображения',
+                          style: TextStyle(color: Colors.white),
+                        ),
+                      ],
+                    ),
+                  );
+                },
+              ),
+            ),
+          ),
+          
+          // Кнопка закрытия
+          Positioned(
+            top: 40,
+            left: 10,
+            child: Container(
+              decoration: BoxDecoration(
+                color: Colors.black.withOpacity(0.5),
+                shape: BoxShape.circle,
+              ),
+              child: IconButton(
+                icon: const Icon(Icons.close, color: Colors.white, size: 30),
+                onPressed: () => Navigator.pop(context),
+              ),
+            ),
+          ),
+          
+          // Информация о картинке
+          Positioned(
+            bottom: 0,
+            left: 0,
+            right: 0,
+            child: Container(
+              padding: const EdgeInsets.all(20),
+              decoration: BoxDecoration(
+                gradient: LinearGradient(
+                  begin: Alignment.bottomCenter,
+                  end: Alignment.topCenter,
+                  colors: [
+                    Colors.black.withOpacity(0.9),
+                    Colors.transparent,
+                  ],
+                ),
+              ),
+              child: SafeArea(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      item.title,
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontSize: 20,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                    if (item.author != null) ...[
+                      const SizedBox(height: 8),
+                      Row(
+                        children: [
+                          const Icon(Icons.person, color: Colors.orange, size: 18),
+                          const SizedBox(width: 5),
+                          Text(
+                            item.author!,
+                            style: const TextStyle(
+                              color: Colors.white70,
+                              fontSize: 16,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ],
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
