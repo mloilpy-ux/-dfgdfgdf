@@ -2,49 +2,156 @@ import 'package:hive/hive.dart';
 
 part 'content_source.g.dart';
 
-@HiveType(typeId: 1)
-enum SourceType { reddit, twitter, telegram }
+enum SourceType {
+  reddit,
+  twitter,
+  telegram,
+}
 
-@HiveType(typeId: 2)
-class ContentSource {
+@HiveType(typeId: 1)
+class ContentSource extends HiveObject {
   @HiveField(0)
   final String id;
+
   @HiveField(1)
-  final String name;
+  String name;
+
   @HiveField(2)
-  final String url;
+  String url;
+
   @HiveField(3)
-  final SourceType type;
+  SourceType type;
+
   @HiveField(4)
-  bool active;
+  bool isActive;
+
   @HiveField(5)
-  bool nsfw;
+  bool isNsfw;
+
+  @HiveField(6)
+  DateTime addedAt;
+
+  @HiveField(7)
+  DateTime? lastParsed;
+
+  @HiveField(8)
+  int parsedCount;
 
   ContentSource({
     required this.id,
     required this.name,
     required this.url,
     required this.type,
-    this.active = true,
-    this.nsfw = false,
+    this.isActive = true,
+    this.isNsfw = false,
+    required this.addedAt,
+    this.lastParsed,
+    this.parsedCount = 0,
   });
 
   factory ContentSource.fromUrl(String url) {
+    String id = DateTime.now().millisecondsSinceEpoch.toString();
+    String name;
     SourceType type;
-    String sub;
-    if (url.contains('reddit.com/r/')) {
+
+    if (url.contains('reddit.com')) {
       type = SourceType.reddit;
-      sub = url.split('/r/')[1].split('/')[0].split('?')[0];
-      return ContentSource(id: sub, name: 'r/$sub', url: 'https://www.reddit.com/r/$sub/.json', type: type);
-    } else if (url.contains('twitter.com/') || url.contains('x.com/')) {
+      final match = RegExp(r'r/([a-zA-Z0-9_]+)').firstMatch(url);
+      name = match != null ? 'r/${match.group(1)}' : 'Reddit Source';
+    } else if (url.contains('twitter.com') || url.contains('x.com')) {
       type = SourceType.twitter;
-      final user = url.split('/').lastWhere((e) => e.isNotEmpty, orElse: () => '');
-      return ContentSource(id: user, name: '@$user', url: url, type: type);
-    } else if (url.contains('t.me/')) {
+      name = 'Twitter Source';
+    } else if (url.contains('t.me')) {
       type = SourceType.telegram;
-      final channel = url.split('/').last;
-      return ContentSource(id: channel, name: channel, url: 'https://t.me/s/$channel', type: type);
+      name = 'Telegram Channel';
+    } else {
+      throw Exception('Неподдерживаемый тип источника');
     }
-    throw Exception('Unsupported URL');
+
+    return ContentSource(
+      id: id,
+      name: name,
+      url: url,
+      type: type,
+      addedAt: DateTime.now(),
+    );
+  }
+
+  static List<ContentSource> getDefaultSources() {
+    return [
+      ContentSource(
+        id: 'default_1',
+        name: 'r/furry_irl',
+        url: 'https://www.reddit.com/r/furry_irl/',
+        type: SourceType.reddit,
+        isActive: true,
+        addedAt: DateTime.now(),
+      ),
+      ContentSource(
+        id: 'default_2',
+        name: 'r/furrymemes',
+        url: 'https://www.reddit.com/r/furrymemes/',
+        type: SourceType.reddit,
+        isActive: true,
+        addedAt: DateTime.now(),
+      ),
+      ContentSource(
+        id: 'default_3',
+        name: 'r/furryart',
+        url: 'https://www.reddit.com/r/furryart/',
+        type: SourceType.reddit,
+        isActive: true,
+        addedAt: DateTime.now(),
+      ),
+    ];
+  }
+
+  Map<String, dynamic> toMap() {
+    return {
+      'id': id,
+      'name': name,
+      'url': url,
+      'type': type.name,
+      'isActive': isActive ? 1 : 0,
+      'isNsfw': isNsfw ? 1 : 0,
+      'addedAt': addedAt.toIso8601String(),
+      'lastParsed': lastParsed?.toIso8601String(),
+      'parsedCount': parsedCount,
+    };
+  }
+
+  factory ContentSource.fromMap(Map<String, dynamic> map) {
+    return ContentSource(
+      id: map['id'],
+      name: map['name'],
+      url: map['url'],
+      type: SourceType.values.firstWhere((e) => e.name == map['type']),
+      isActive: map['isActive'] == 1,
+      isNsfw: map['isNsfw'] == 1,
+      addedAt: DateTime.parse(map['addedAt']),
+      lastParsed: map['lastParsed'] != null ? DateTime.parse(map['lastParsed']) : null,
+      parsedCount: map['parsedCount'] ?? 0,
+    );
+  }
+
+  ContentSource copyWith({
+    String? name,
+    String? url,
+    bool? isActive,
+    bool? isNsfw,
+    DateTime? lastParsed,
+    int? parsedCount,
+  }) {
+    return ContentSource(
+      id: id,
+      name: name ?? this.name,
+      url: url ?? this.url,
+      type: type,
+      isActive: isActive ?? this.isActive,
+      isNsfw: isNsfw ?? this.isNsfw,
+      addedAt: addedAt,
+      lastParsed: lastParsed ?? this.lastParsed,
+      parsedCount: parsedCount ?? this.parsedCount,
+    );
   }
 }
