@@ -11,6 +11,7 @@ import '../models/content_item.dart';
 import 'logs_screen.dart';
 import 'favorites_screen.dart';
 import 'sources_screen.dart';
+import 'gifs_screen.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 class WallpaperScreen extends StatefulWidget {
@@ -23,6 +24,7 @@ class WallpaperScreen extends StatefulWidget {
 class _WallpaperScreenState extends State<WallpaperScreen> {
   int _currentIndex = 0;
   bool _isDownloading = false;
+  final List<int> _history = [];
 
   @override
   void initState() {
@@ -53,10 +55,19 @@ class _WallpaperScreenState extends State<WallpaperScreen> {
 
     if (items.isEmpty) return;
 
+    _history.add(_currentIndex);
     contentProvider.markAsShown(items[_currentIndex].id);
 
     setState(() {
       _currentIndex = (_currentIndex + 1) % items.length;
+    });
+  }
+
+  void _previousImage() {
+    if (_history.isEmpty) return;
+    
+    setState(() {
+      _currentIndex = _history.removeLast();
     });
   }
 
@@ -73,7 +84,8 @@ class _WallpaperScreenState extends State<WallpaperScreen> {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('💾 Сохранено: $fileName'),
+            content: Text('💾 $fileName'),
+            duration: const Duration(seconds: 1),
             backgroundColor: Colors.green,
           ),
         );
@@ -82,7 +94,8 @@ class _WallpaperScreenState extends State<WallpaperScreen> {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('❌ Ошибка: $e'),
+            content: const Text('❌'),
+            duration: const Duration(seconds: 1),
             backgroundColor: Colors.red,
           ),
         );
@@ -99,30 +112,12 @@ class _WallpaperScreenState extends State<WallpaperScreen> {
     if (mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text(item.isSaved ? '❤️ Добавлено в избранное' : '💔 Удалено'),
-          duration: const Duration(seconds: 1),
+          content: Text(item.isSaved ? '❤️' : '💔'),
+          duration: const Duration(milliseconds: 500),
+          backgroundColor: item.isSaved ? Colors.pink : Colors.grey,
         ),
       );
     }
-  }
-
-  Future<void> _setWallpaper(ContentItem item) async {
-    // TODO: Реализовать через нативный код Android
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(
-        content: Text('🖼️ Функция установки обоев в разработке\nИспользуйте "Скачать" и установите вручную'),
-        duration: Duration(seconds: 3),
-      ),
-    );
-  }
-
-  String _getSourceName(String sourceId) {
-    final sourcesProvider = context.read<SourcesProvider>();
-    final source = sourcesProvider.sources.firstWhere(
-      (s) => s.id == sourceId,
-      orElse: () => sourcesProvider.sources.first,
-    );
-    return source.name;
   }
 
   String _getSourceIcon(String sourceId) {
@@ -136,59 +131,6 @@ class _WallpaperScreenState extends State<WallpaperScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: Colors.black,
-      appBar: AppBar(
-        backgroundColor: Colors.black.withOpacity(0.7),
-        title: const Text('🐾 Furry Wallpapers'),
-        actions: [
-          // Кнопка источников
-          IconButton(
-            icon: const Icon(Icons.source, color: Colors.orange),
-            onPressed: () {
-              Navigator.push(
-                context,
-                MaterialPageRoute(builder: (_) => const SourcesScreen()),
-              );
-            },
-            tooltip: 'Источники',
-          ),
-          // Избранное
-          IconButton(
-            icon: const Icon(Icons.favorite, color: Colors.pink),
-            onPressed: () {
-              Navigator.push(
-                context,
-                MaterialPageRoute(builder: (_) => const FavoritesScreen()),
-              );
-            },
-          ),
-          // NSFW фильтр
-          Consumer<SettingsProvider>(
-            builder: (context, settings, _) => IconButton(
-              icon: Icon(
-                settings.showNsfw ? Icons.visibility : Icons.visibility_off,
-                color: settings.showNsfw ? Colors.red : Colors.grey,
-              ),
-              onPressed: settings.toggleNsfw,
-              tooltip: settings.showNsfw ? 'Скрыть NSFW' : 'Показать NSFW',
-            ),
-          ),
-          // Логи
-          IconButton(
-            icon: const Icon(Icons.article, color: Colors.amber),
-            onPressed: () {
-              Navigator.push(
-                context,
-                MaterialPageRoute(builder: (_) => const LogsScreen()),
-              );
-            },
-          ),
-          // Обновление
-          IconButton(
-            icon: const Icon(Icons.refresh),
-            onPressed: _loadContent,
-          ),
-        ],
-      ),
       body: Consumer2<ContentProvider, SettingsProvider>(
         builder: (context, contentProvider, settings, _) {
           final items = settings.showNsfw
@@ -197,14 +139,7 @@ class _WallpaperScreenState extends State<WallpaperScreen> {
 
           if (contentProvider.isLoading) {
             return const Center(
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  CircularProgressIndicator(color: Colors.deepOrange),
-                  SizedBox(height: 16),
-                  Text('Загрузка артов...', style: TextStyle(color: Colors.white)),
-                ],
-              ),
+              child: CircularProgressIndicator(color: Colors.deepOrange),
             );
           }
 
@@ -213,15 +148,11 @@ class _WallpaperScreenState extends State<WallpaperScreen> {
               child: Column(
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
-                  const Icon(Icons.wallpaper, size: 64, color: Colors.grey),
-                  const SizedBox(height: 16),
-                  const Text('Нет обоев', style: TextStyle(fontSize: 20, color: Colors.white)),
-                  const SizedBox(height: 8),
-                  ElevatedButton.icon(
+                  const Icon(Icons.wallpaper, size: 80, color: Colors.grey),
+                  const SizedBox(height: 24),
+                  IconButton(
+                    icon: const Icon(Icons.refresh, size: 40, color: Colors.deepOrange),
                     onPressed: _loadContent,
-                    icon: const Icon(Icons.download),
-                    label: const Text('Загрузить обои'),
-                    style: ElevatedButton.styleFrom(backgroundColor: Colors.deepOrange),
                   ),
                 ],
               ),
@@ -231,204 +162,144 @@ class _WallpaperScreenState extends State<WallpaperScreen> {
           final currentItem = items[_currentIndex];
 
           return GestureDetector(
-            // СВАЙП ВЛЕВО - далее
+            // СВАЙПЫ
             onHorizontalDragEnd: (details) {
-              if (details.primaryVelocity! < -500) {
-                // Свайп ВЛЕВО - следующее
+              if (details.primaryVelocity! > 500) {
+                // ВПРАВО - далее
                 _nextImage();
+              } else if (details.primaryVelocity! < -500) {
+                // ВЛЕВО - назад
+                _previousImage();
               }
             },
-            // Свайпы вверх/вниз
             onVerticalDragEnd: (details) {
               if (details.primaryVelocity! < -500) {
-                // Свайп вверх - сохранить
+                // ВВЕРХ - избранное
                 _saveToFavorites(currentItem);
               } else if (details.primaryVelocity! > 500) {
-                // Свайп вниз - скачать
+                // ВНИЗ - сохранить
                 _downloadImage(currentItem);
               }
             },
-            child: Column(
+            child: Stack(
+              fit: StackFit.expand,
               children: [
-                Expanded(
-                  child: Stack(
-                    fit: StackFit.expand,
-                    children: [
-                      CachedNetworkImage(
-                        imageUrl: currentItem.mediaUrl,
-                        fit: BoxFit.contain,
-                        placeholder: (_, __) => const Center(
-                          child: CircularProgressIndicator(color: Colors.deepOrange),
-                        ),
-                        errorWidget: (_, __, ___) => const Center(
-                          child: Icon(Icons.error, size: 64, color: Colors.red),
-                        ),
-                      ),
-                      // Счётчик
-                      Positioned(
-                        top: 16,
-                        right: 16,
-                        child: Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                          decoration: BoxDecoration(
-                            color: Colors.black.withOpacity(0.7),
-                            borderRadius: BorderRadius.circular(20),
-                          ),
-                          child: Text(
-                            '${_currentIndex + 1} / ${items.length}',
-                            style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
-                          ),
-                        ),
-                      ),
-                      // КНОПКА ИСТОЧНИКА (КЛИКАБЕЛЬНАЯ)
-                      Positioned(
-                        top: 60,
-                        right: 16,
-                        child: GestureDetector(
-                          onTap: () async {
-                            if (currentItem.postUrl != null) {
-                              await launchUrl(Uri.parse(currentItem.postUrl!));
-                            }
-                          },
-                          child: Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                            decoration: BoxDecoration(
-                              color: Colors.deepOrange.withOpacity(0.9),
-                              borderRadius: BorderRadius.circular(20),
-                            ),
-                            child: Row(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                Text(_getSourceIcon(currentItem.sourceId), style: const TextStyle(fontSize: 14)),
-                                const SizedBox(width: 4),
-                                Text(
-                                  _getSourceName(currentItem.sourceId),
-                                  style: const TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.bold),
-                                ),
-                                const SizedBox(width: 4),
-                                const Icon(Icons.open_in_new, color: Colors.white, size: 12),
-                              ],
-                            ),
-                          ),
-                        ),
-                      ),
-                      // Информация внизу
-                      Positioned(
-                        bottom: 120,
-                        left: 0,
-                        right: 0,
-                        child: Container(
-                          padding: const EdgeInsets.all(16),
-                          decoration: BoxDecoration(
-                            gradient: LinearGradient(
-                              begin: Alignment.bottomCenter,
-                              end: Alignment.topCenter,
-                              colors: [Colors.black.withOpacity(0.9), Colors.transparent],
-                            ),
-                          ),
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text(
-                                currentItem.title,
-                                style: const TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold),
-                                maxLines: 2,
-                                overflow: TextOverflow.ellipsis,
-                              ),
-                              if (currentItem.author != null)
-                                Text(
-                                  'by ${currentItem.author}',
-                                  style: TextStyle(color: Colors.white.withOpacity(0.8), fontSize: 14),
-                                ),
-                              const SizedBox(height: 4),
-                              Text(
-                                '💡 Свайп ⬆️ сохранить | ⬇️ скачать | ⬅️ далее',
-                                style: TextStyle(color: Colors.grey.shade400, fontSize: 11),
-                              ),
-                            ],
-                          ),
-                        ),
-                      ),
-                    ],
+                // КАРТИНКА НА ВЕСЬ ЭКРАН
+                CachedNetworkImage(
+                  imageUrl: currentItem.mediaUrl,
+                  fit: BoxFit.contain,
+                  placeholder: (_, __) => const Center(
+                    child: CircularProgressIndicator(color: Colors.deepOrange),
+                  ),
+                  errorWidget: (_, __, ___) => const Center(
+                    child: Icon(Icons.error, size: 64, color: Colors.red),
                   ),
                 ),
-                // ЧЕТЫРЕ КНОПКИ
-                Container(
-                  padding: const EdgeInsets.all(16),
-                  decoration: BoxDecoration(
-                    color: Colors.grey.shade900,
-                    boxShadow: [
-                      BoxShadow(
-                        color: Colors.black.withOpacity(0.3),
-                        blurRadius: 10,
-                        offset: const Offset(0, -5),
+                
+                // МЕНЮ ВВЕРХУ (минималистичное)
+                Positioned(
+                  top: 0,
+                  left: 0,
+                  right: 0,
+                  child: Container(
+                    padding: EdgeInsets.only(
+                      top: MediaQuery.of(context).padding.top,
+                    ),
+                    decoration: BoxDecoration(
+                      gradient: LinearGradient(
+                        begin: Alignment.topCenter,
+                        end: Alignment.bottomCenter,
+                        colors: [
+                          Colors.black.withOpacity(0.7),
+                          Colors.transparent,
+                        ],
                       ),
-                    ],
+                    ),
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        // Левая группа
+                        Row(
+                          children: [
+                            IconButton(
+                              icon: const Icon(Icons.source, color: Colors.white),
+                              onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const SourcesScreen())),
+                            ),
+                            IconButton(
+                              icon: const Icon(Icons.gif_box, color: Colors.white),
+                              onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const GifsScreen())),
+                            ),
+                          ],
+                        ),
+                        // Правая группа
+                        Row(
+                          children: [
+                            IconButton(
+                              icon: const Icon(Icons.favorite, color: Colors.pink),
+                              onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const FavoritesScreen())),
+                            ),
+                            Consumer<SettingsProvider>(
+                              builder: (context, settings, _) => IconButton(
+                                icon: Icon(
+                                  settings.showNsfw ? Icons.visibility : Icons.visibility_off,
+                                  color: settings.showNsfw ? Colors.red : Colors.grey,
+                                ),
+                                onPressed: settings.toggleNsfw,
+                              ),
+                            ),
+                            IconButton(
+                              icon: const Icon(Icons.article, color: Colors.amber),
+                              onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const LogsScreen())),
+                            ),
+                            IconButton(
+                              icon: const Icon(Icons.refresh, color: Colors.white),
+                              onPressed: _loadContent,
+                            ),
+                          ],
+                        ),
+                      ],
+                    ),
                   ),
-                  child: Row(
-                    children: [
-                      // Далее
-                      Expanded(
-                        child: ElevatedButton.icon(
-                          onPressed: _nextImage,
-                          icon: const Icon(Icons.navigate_next),
-                          label: const Text('Далее'),
-                          style: ElevatedButton.styleFrom(
-                            padding: const EdgeInsets.symmetric(vertical: 16),
-                            backgroundColor: Colors.deepOrange,
-                            foregroundColor: Colors.white,
-                          ),
-                        ),
+                ),
+                
+                // КНОПКА ИСТОЧНИКА (кликабельная)
+                Positioned(
+                  bottom: 20,
+                  left: 20,
+                  child: GestureDetector(
+                    onTap: () async {
+                      if (currentItem.postUrl != null) {
+                        await launchUrl(Uri.parse(currentItem.postUrl!));
+                      }
+                    },
+                    child: Container(
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(
+                        color: Colors.black.withOpacity(0.7),
+                        shape: BoxShape.circle,
                       ),
-                      const SizedBox(width: 8),
-                      // Установить
-                      Expanded(
-                        child: ElevatedButton.icon(
-                          onPressed: () => _setWallpaper(currentItem),
-                          icon: const Icon(Icons.wallpaper),
-                          label: const Text('Установить'),
-                          style: ElevatedButton.styleFrom(
-                            padding: const EdgeInsets.symmetric(vertical: 16),
-                            backgroundColor: Colors.purple,
-                            foregroundColor: Colors.white,
-                          ),
-                        ),
+                      child: Text(
+                        _getSourceIcon(currentItem.sourceId),
+                        style: const TextStyle(fontSize: 24),
                       ),
-                      const SizedBox(width: 8),
-                      // Сохранить
-                      Expanded(
-                        child: ElevatedButton.icon(
-                          onPressed: () => _saveToFavorites(currentItem),
-                          icon: Icon(currentItem.isSaved ? Icons.favorite : Icons.favorite_border),
-                          label: const Text('❤️'),
-                          style: ElevatedButton.styleFrom(
-                            padding: const EdgeInsets.symmetric(vertical: 16),
-                            backgroundColor: Colors.pink,
-                            foregroundColor: Colors.white,
-                          ),
-                        ),
-                      ),
-                      const SizedBox(width: 8),
-                      // Скачать
-                      Expanded(
-                        child: ElevatedButton.icon(
-                          onPressed: _isDownloading ? null : () => _downloadImage(currentItem),
-                          icon: _isDownloading
-                              ? const SizedBox(
-                                  width: 16,
-                                  height: 16,
-                                  child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
-                                )
-                              : const Icon(Icons.download),
-                          label: const Text('💾'),
-                          style: ElevatedButton.styleFrom(
-                            padding: const EdgeInsets.symmetric(vertical: 16),
-                            backgroundColor: Colors.green,
-                            foregroundColor: Colors.white,
-                          ),
-                        ),
-                      ),
-                    ],
+                    ),
+                  ),
+                ),
+                
+                // СЧЁТЧИК
+                Positioned(
+                  bottom: 20,
+                  right: 20,
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                    decoration: BoxDecoration(
+                      color: Colors.black.withOpacity(0.7),
+                      borderRadius: BorderRadius.circular(20),
+                    ),
+                    child: Text(
+                      '${_currentIndex + 1}/${items.length}',
+                      style: const TextStyle(color: Colors.white, fontSize: 12),
+                    ),
                   ),
                 ),
               ],
