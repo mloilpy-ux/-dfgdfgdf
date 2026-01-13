@@ -4,7 +4,7 @@ import 'providers/content_provider.dart';
 import 'providers/sources_provider.dart';
 import 'providers/settings_provider.dart';
 import 'providers/logger_provider.dart';
-import 'screens/main_screen.dart';
+import 'screens/wallpaper_screen.dart';
 import 'theme.dart';
 
 void main() async {
@@ -29,9 +29,9 @@ class MyApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'Furry Content Hub',
+      title: 'Furry Wallpapers',
       theme: furryTheme,
-      home: const MainScreen(),
+      home: const WallpaperScreen(),
       debugShowCheckedModeBanner: false,
     );
   }
