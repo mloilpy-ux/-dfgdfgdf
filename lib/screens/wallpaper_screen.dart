@@ -24,7 +24,6 @@ class WallpaperScreen extends StatefulWidget {
 }
 
 class _WallpaperScreenState extends State<WallpaperScreen> {
-  // ВСЕ ПЕРЕМЕННЫЕ ЗДЕСЬ В НАЧАЛЕ
   int _currentIndex = 0;
   bool _isDownloading = false;
   final List<int> _history = [];
@@ -202,9 +201,7 @@ class _WallpaperScreenState extends State<WallpaperScreen> {
               : contentProvider.items.where((item) => !item.isNsfw).toList();
 
           if (contentProvider.isLoading) {
-            return const Center(
-              child: FurryLoadingIndicator(),
-            );
+            return const Center(child: FurryLoadingIndicator());
           }
 
           if (items.isEmpty) {
@@ -226,7 +223,7 @@ class _WallpaperScreenState extends State<WallpaperScreen> {
           final currentItem = items[_currentIndex];
 
           return GestureDetector(
-            onTap: _handleTap, // Для пасхалки OwO
+            onTap: _handleTap,
             onHorizontalDragEnd: (details) {
               if (details.primaryVelocity! > 500) {
                 _nextImage();
@@ -247,12 +244,8 @@ class _WallpaperScreenState extends State<WallpaperScreen> {
                 CachedNetworkImage(
                   imageUrl: currentItem.mediaUrl,
                   fit: BoxFit.contain,
-                  placeholder: (_, __) => const Center(
-                    child: FurryLoadingIndicator(),
-                  ),
-                  errorWidget: (_, __, ___) => const Center(
-                    child: Icon(Icons.error, size: 64, color: Colors.red),
-                  ),
+                  placeholder: (_, __) => const Center(child: FurryLoadingIndicator()),
+                  errorWidget: (_, __, ___) => const Center(child: Icon(Icons.error, size: 64, color: Colors.red)),
                 ),
                 
                 Positioned(
@@ -260,17 +253,12 @@ class _WallpaperScreenState extends State<WallpaperScreen> {
                   left: 0,
                   right: 0,
                   child: Container(
-                    padding: EdgeInsets.only(
-                      top: MediaQuery.of(context).padding.top,
-                    ),
+                    padding: EdgeInsets.only(top: MediaQuery.of(context).padding.top),
                     decoration: BoxDecoration(
                       gradient: LinearGradient(
                         begin: Alignment.topCenter,
                         end: Alignment.bottomCenter,
-                        colors: [
-                          Colors.black.withOpacity(0.7),
-                          Colors.transparent,
-                        ],
+                        colors: [Colors.black.withOpacity(0.7), Colors.transparent],
                       ),
                     ),
                     child: Row(
@@ -296,10 +284,7 @@ class _WallpaperScreenState extends State<WallpaperScreen> {
                             ),
                             Consumer<SettingsProvider>(
                               builder: (context, settings, _) => IconButton(
-                                icon: Icon(
-                                  settings.showNsfw ? Icons.visibility : Icons.visibility_off,
-                                  color: settings.showNsfw ? Colors.red : Colors.grey,
-                                ),
+                                icon: Icon(settings.showNsfw ? Icons.visibility : Icons.visibility_off, color: settings.showNsfw ? Colors.red : Colors.grey),
                                 onPressed: settings.toggleNsfw,
                               ),
                             ),
@@ -329,14 +314,8 @@ class _WallpaperScreenState extends State<WallpaperScreen> {
                     },
                     child: Container(
                       padding: const EdgeInsets.all(12),
-                      decoration: BoxDecoration(
-                        color: Colors.black.withOpacity(0.7),
-                        shape: BoxShape.circle,
-                      ),
-                      child: Text(
-                        _getSourceIcon(currentItem.sourceId),
-                        style: const TextStyle(fontSize: 24),
-                      ),
+                      decoration: BoxDecoration(color: Colors.black.withOpacity(0.7), shape: BoxShape.circle),
+                      child: Text(_getSourceIcon(currentItem.sourceId), style: const TextStyle(fontSize: 24)),
                     ),
                   ),
                 ),
@@ -346,14 +325,8 @@ class _WallpaperScreenState extends State<WallpaperScreen> {
                   right: 20,
                   child: Container(
                     padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                    decoration: BoxDecoration(
-                      color: Colors.black.withOpacity(0.7),
-                      borderRadius: BorderRadius.circular(20),
-                    ),
-                    child: Text(
-                      '${_currentIndex + 1}/${items.length}',
-                      style: const TextStyle(color: Colors.white, fontSize: 12),
-                    ),
+                    decoration: BoxDecoration(color: Colors.black.withOpacity(0.7), borderRadius: BorderRadius.circular(20)),
+                    child: Text('${_currentIndex + 1}/${items.length}', style: const TextStyle(color: Colors.white, fontSize: 12)),
                   ),
                 ),
               ],
