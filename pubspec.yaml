@@ -1,10 +1,10 @@
 name: furry_content_hub
-description: Furry content aggregator
+description: Furry wallpaper aggregator
 publish_to: 'none'
 version: 1.0.0+1
 
 environment:
-  sdk: '>=3.0.0 <4.0.0'
+  sdk: '^3.10.0'
   flutter: '>=3.0.0'
 
 dependencies:
@@ -19,19 +19,40 @@ dependencies:
   path: ^1.9.0
   shared_preferences: ^2.2.2
   
-  # Network
+  # Network & Parsing
   http: ^1.2.0
-  cached_network_image: ^3.3.1
+  webview_flutter: ^4.5.0
+  html: ^0.15.4
+  beautiful_soup_dart: ^0.3.0
   
   # UI
+  cached_network_image: ^3.3.1
   url_launcher: ^6.2.4
-  video_player: ^2.8.2
-  path_provider: ^2.1.1  # ДОБАВЬТЕ ЭТУ СТРОКУ
-    
+  path_provider: ^2.1.1
+  flutter_svg: ^2.0.9
+  
+  # Background tasks
+  workmanager: ^0.5.1
+  
+  # Utils
+  intl: ^0.18.1
+  crypto: ^3.0.3
+
 dev_dependencies:
   flutter_test:
     sdk: flutter
   flutter_lints: ^3.0.0
+  flutter_launcher_icons: ^0.13.1
 
 flutter:
   uses-material-design: true
+  assets:
+    - assets/icons/
+    - assets/furry_stickers/
+
+flutter_launcher_icons:
+  android: true
+  ios: false
+  image_path: "assets/icon/furry_icon.png"
+  adaptive_icon_foreground: "assets/icon/furry_icon_foreground.png"
+  adaptive_icon_background: "#FF5722"
