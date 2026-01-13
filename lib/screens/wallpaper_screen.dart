@@ -12,7 +12,15 @@ import 'logs_screen.dart';
 import 'favorites_screen.dart';
 import 'sources_screen.dart';
 import 'gifs_screen.dart';
+import '../widgets/furry_loading.dart';
 import 'package:url_launcher/url_launcher.dart';
+
+// В build():
+if (contentProvider.isLoading) {
+  return const Center(
+    child: FurryLoadingIndicator(), // Вместо CircularProgressIndicator
+  );
+}
 
 class WallpaperScreen extends StatefulWidget {
   const WallpaperScreen({super.key});
