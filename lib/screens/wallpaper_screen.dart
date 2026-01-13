@@ -3,24 +3,18 @@ import 'package:provider/provider.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:http/http.dart' as http;
 import 'package:path_provider/path_provider.dart';
+import 'package:flutter/services.dart';
 import 'dart:io';
 import '../providers/content_provider.dart';
 import '../providers/sources_provider.dart';
 import '../providers/settings_provider.dart';
 import '../models/content_item.dart';
+import '../widgets/furry_loading.dart';
 import 'logs_screen.dart';
 import 'favorites_screen.dart';
 import 'sources_screen.dart';
 import 'gifs_screen.dart';
-import '../widgets/furry_loading.dart';
 import 'package:url_launcher/url_launcher.dart';
-
-// В build():
-if (contentProvider.isLoading) {
-  return const Center(
-    child: FurryLoadingIndicator(), // Вместо CircularProgressIndicator
-  );
-}
 
 class WallpaperScreen extends StatefulWidget {
   const WallpaperScreen({super.key});
@@ -30,9 +24,12 @@ class WallpaperScreen extends StatefulWidget {
 }
 
 class _WallpaperScreenState extends State<WallpaperScreen> {
+  // ВСЕ ПЕРЕМЕННЫЕ ЗДЕСЬ В НАЧАЛЕ
   int _currentIndex = 0;
   bool _isDownloading = false;
   final List<int> _history = [];
+  int _tapCount = 0;
+  DateTime? _lastTapTime;
 
   @override
   void initState() {
@@ -54,6 +51,8 @@ class _WallpaperScreenState extends State<WallpaperScreen> {
   }
 
   void _nextImage() {
+    HapticFeedback.selectionClick();
+    
     final contentProvider = context.read<ContentProvider>();
     final settings = context.read<SettingsProvider>();
     
@@ -80,6 +79,7 @@ class _WallpaperScreenState extends State<WallpaperScreen> {
   }
 
   Future<void> _downloadImage(ContentItem item) async {
+    HapticFeedback.mediumImpact();
     setState(() => _isDownloading = true);
     
     try {
@@ -101,9 +101,9 @@ class _WallpaperScreenState extends State<WallpaperScreen> {
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: const Text('❌'),
-            duration: const Duration(seconds: 1),
+          const SnackBar(
+            content: Text('❌ Ошибка'),
+            duration: Duration(seconds: 1),
             backgroundColor: Colors.red,
           ),
         );
@@ -114,18 +114,74 @@ class _WallpaperScreenState extends State<WallpaperScreen> {
   }
 
   Future<void> _saveToFavorites(ContentItem item) async {
+    HapticFeedback.lightImpact();
+    
     final contentProvider = context.read<ContentProvider>();
     await contentProvider.toggleSave(item);
     
     if (mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text(item.isSaved ? '❤️' : '💔'),
+          content: Text(item.isSaved ? '💜' : '💔'),
           duration: const Duration(milliseconds: 500),
           backgroundColor: item.isSaved ? Colors.pink : Colors.grey,
         ),
       );
     }
+  }
+
+  void _handleTap() {
+    final now = DateTime.now();
+    
+    if (_lastTapTime != null && now.difference(_lastTapTime!) < const Duration(seconds: 1)) {
+      _tapCount++;
+    } else {
+      _tapCount = 1;
+    }
+    
+    _lastTapTime = now;
+    
+    if (_tapCount == 3) {
+      _showOwOEasterEgg();
+      _tapCount = 0;
+    }
+  }
+
+  void _showOwOEasterEgg() {
+    HapticFeedback.heavyImpact();
+    showDialog(
+      context: context,
+      builder: (context) => Dialog(
+        backgroundColor: Colors.transparent,
+        child: Center(
+          child: Container(
+            padding: const EdgeInsets.all(32),
+            decoration: BoxDecoration(
+              gradient: const LinearGradient(
+                colors: [Colors.purple, Colors.pink, Colors.orange],
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+              ),
+              borderRadius: BorderRadius.circular(24),
+            ),
+            child: const Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text('OwO', style: TextStyle(fontSize: 80, fontWeight: FontWeight.bold, color: Colors.white)),
+                SizedBox(height: 16),
+                Text('What\'s this?', style: TextStyle(fontSize: 24, color: Colors.white)),
+                SizedBox(height: 8),
+                Text('🐾 *nuzzles* 🐾', style: TextStyle(fontSize: 20, color: Colors.white)),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+    
+    Future.delayed(const Duration(seconds: 2), () {
+      if (mounted) Navigator.pop(context);
+    });
   }
 
   String _getSourceIcon(String sourceId) {
@@ -147,7 +203,7 @@ class _WallpaperScreenState extends State<WallpaperScreen> {
 
           if (contentProvider.isLoading) {
             return const Center(
-              child: CircularProgressIndicator(color: Colors.deepOrange),
+              child: FurryLoadingIndicator(),
             );
           }
 
@@ -170,41 +226,35 @@ class _WallpaperScreenState extends State<WallpaperScreen> {
           final currentItem = items[_currentIndex];
 
           return GestureDetector(
-            // СВАЙПЫ
+            onTap: _handleTap, // Для пасхалки OwO
             onHorizontalDragEnd: (details) {
               if (details.primaryVelocity! > 500) {
-                // ВПРАВО - далее
                 _nextImage();
               } else if (details.primaryVelocity! < -500) {
-                // ВЛЕВО - назад
                 _previousImage();
               }
             },
             onVerticalDragEnd: (details) {
               if (details.primaryVelocity! < -500) {
-                // ВВЕРХ - избранное
                 _saveToFavorites(currentItem);
               } else if (details.primaryVelocity! > 500) {
-                // ВНИЗ - сохранить
                 _downloadImage(currentItem);
               }
             },
             child: Stack(
               fit: StackFit.expand,
               children: [
-                // КАРТИНКА НА ВЕСЬ ЭКРАН
                 CachedNetworkImage(
                   imageUrl: currentItem.mediaUrl,
                   fit: BoxFit.contain,
                   placeholder: (_, __) => const Center(
-                    child: CircularProgressIndicator(color: Colors.deepOrange),
+                    child: FurryLoadingIndicator(),
                   ),
                   errorWidget: (_, __, ___) => const Center(
                     child: Icon(Icons.error, size: 64, color: Colors.red),
                   ),
                 ),
                 
-                // МЕНЮ ВВЕРХУ (минималистичное)
                 Positioned(
                   top: 0,
                   left: 0,
@@ -226,7 +276,6 @@ class _WallpaperScreenState extends State<WallpaperScreen> {
                     child: Row(
                       mainAxisAlignment: MainAxisAlignment.spaceBetween,
                       children: [
-                        // Левая группа
                         Row(
                           children: [
                             IconButton(
@@ -235,11 +284,10 @@ class _WallpaperScreenState extends State<WallpaperScreen> {
                             ),
                             IconButton(
                               icon: const Icon(Icons.gif_box, color: Colors.white),
-                              onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => GifsScreen())),
+                              onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const GifsScreen())),
                             ),
                           ],
                         ),
-                        // Правая группа
                         Row(
                           children: [
                             IconButton(
@@ -270,7 +318,6 @@ class _WallpaperScreenState extends State<WallpaperScreen> {
                   ),
                 ),
                 
-                // КНОПКА ИСТОЧНИКА (кликабельная)
                 Positioned(
                   bottom: 20,
                   left: 20,
@@ -293,64 +340,7 @@ class _WallpaperScreenState extends State<WallpaperScreen> {
                     ),
                   ),
                 ),
-                // В wallpaper_screen.dart добавить:
-int _tapCount = 0;
-DateTime? _lastTapTime;
-
-void _handleTap() {
-  final now = DateTime.now();
-  
-  if (_lastTapTime != null && now.difference(_lastTapTime!) < const Duration(seconds: 1)) {
-    _tapCount++;
-  } else {
-    _tapCount = 1;
-  }
-  
-  _lastTapTime = now;
-  
-  // Тройной тап
-  if (_tapCount == 3) {
-    _showOwOEasterEgg();
-    _tapCount = 0;
-  }
-}
-
-void _showOwOEasterEgg() {
-  showDialog(
-    context: context,
-    builder: (context) => Dialog(
-      backgroundColor: Colors.transparent,
-      child: Center(
-        child: Container(
-          padding: const EdgeInsets.all(32),
-          decoration: BoxDecoration(
-            gradient: LinearGradient(
-              colors: [Colors.purple, Colors.pink, Colors.orange],
-              begin: Alignment.topLeft,
-              end: Alignment.bottomRight,
-            ),
-            borderRadius: BorderRadius.circular(24),
-          ),
-          child: const Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Text('OwO', style: TextStyle(fontSize: 80, fontWeight: FontWeight.bold)),
-              SizedBox(height: 16),
-              Text('What\'s this?', style: TextStyle(fontSize: 24, color: Colors.white)),
-              SizedBox(height: 8),
-              Text('🐾 *nuzzles* 🐾', style: TextStyle(fontSize: 20)),
-            ],
-          ),
-        ),
-      ),
-    ),
-  );
-  
-  Future.delayed(const Duration(seconds: 2), () {
-    if (mounted) Navigator.pop(context);
-  });
-}
-                // СЧЁТЧИК
+                
                 Positioned(
                   bottom: 20,
                   right: 20,
