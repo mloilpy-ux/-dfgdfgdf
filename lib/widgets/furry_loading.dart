@@ -34,7 +34,6 @@ class _FurryLoadingIndicatorState extends State<FurryLoadingIndicator>
         return Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            // Вращающиеся лапки
             Stack(
               alignment: Alignment.center,
               children: List.generate(4, (index) {
@@ -52,10 +51,9 @@ class _FurryLoadingIndicatorState extends State<FurryLoadingIndicator>
               }),
             ),
             const SizedBox(height: 16),
-            // Текст
-            Text(
-              'Loading... ${FurryEmojis.random()}',
-              style: const TextStyle(color: Colors.orange, fontSize: 14),
+            const Text(
+              'Loading... OwO',
+              style: TextStyle(color: Colors.orange, fontSize: 14),
             ),
           ],
         );
