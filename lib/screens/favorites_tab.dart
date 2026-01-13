@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../providers/content_provider.dart';
 import '../widgets/content_grid_widget.dart';
-import '../widgets/content_grid.dart';
 
 class FavoritesTab extends StatefulWidget {
   const FavoritesTab({super.key});
