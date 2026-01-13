@@ -285,7 +285,63 @@ class _WallpaperScreenState extends State<WallpaperScreen> {
                     ),
                   ),
                 ),
-                
+                // В wallpaper_screen.dart добавить:
+int _tapCount = 0;
+DateTime? _lastTapTime;
+
+void _handleTap() {
+  final now = DateTime.now();
+  
+  if (_lastTapTime != null && now.difference(_lastTapTime!) < const Duration(seconds: 1)) {
+    _tapCount++;
+  } else {
+    _tapCount = 1;
+  }
+  
+  _lastTapTime = now;
+  
+  // Тройной тап
+  if (_tapCount == 3) {
+    _showOwOEasterEgg();
+    _tapCount = 0;
+  }
+}
+
+void _showOwOEasterEgg() {
+  showDialog(
+    context: context,
+    builder: (context) => Dialog(
+      backgroundColor: Colors.transparent,
+      child: Center(
+        child: Container(
+          padding: const EdgeInsets.all(32),
+          decoration: BoxDecoration(
+            gradient: LinearGradient(
+              colors: [Colors.purple, Colors.pink, Colors.orange],
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+            ),
+            borderRadius: BorderRadius.circular(24),
+          ),
+          child: const Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text('OwO', style: TextStyle(fontSize: 80, fontWeight: FontWeight.bold)),
+              SizedBox(height: 16),
+              Text('What\'s this?', style: TextStyle(fontSize: 24, color: Colors.white)),
+              SizedBox(height: 8),
+              Text('🐾 *nuzzles* 🐾', style: TextStyle(fontSize: 20)),
+            ],
+          ),
+        ),
+      ),
+    ),
+  );
+  
+  Future.delayed(const Duration(seconds: 2), () {
+    if (mounted) Navigator.pop(context);
+  });
+}
                 // СЧЁТЧИК
                 Positioned(
                   bottom: 20,
