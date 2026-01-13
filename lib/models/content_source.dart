@@ -34,10 +34,12 @@ class ContentSource {
       name = match != null ? 'r/${match.group(1)}' : 'Reddit Source';
     } else if (url.contains('twitter.com') || url.contains('x.com')) {
       type = SourceType.twitter;
-      name = 'Twitter Source';
+      final match = RegExp(r'(?:twitter|x)\.com/([^/]+)').firstMatch(url);
+      name = match != null ? '@${match.group(1)}' : 'Twitter Source';
     } else if (url.contains('t.me')) {
       type = SourceType.telegram;
-      name = 'Telegram Channel';
+      final match = RegExp(r't\.me/([^/]+)').firstMatch(url);
+      name = match != null ? match.group(1)! : 'Telegram Channel';
     } else {
       throw Exception('Неподдерживаемый тип источника');
     }
@@ -71,8 +73,8 @@ class ContentSource {
       ),
       ContentSource(
         id: 'default_3',
-        name: 'r/furryart',
-        url: 'https://www.reddit.com/r/furryart/',
+        name: 'r/furry',
+        url: 'https://www.reddit.com/r/furry/',
         type: SourceType.reddit,
         isActive: true,
         addedAt: DateTime.now(),
@@ -96,15 +98,15 @@ class ContentSource {
 
   factory ContentSource.fromMap(Map<String, dynamic> map) {
     return ContentSource(
-      id: map['id'],
-      name: map['name'],
-      url: map['url'],
+      id: map['id'] as String,
+      name: map['name'] as String,
+      url: map['url'] as String,
       type: SourceType.values.firstWhere((e) => e.name == map['type']),
-      isActive: map['isActive'] == 1,
-      isNsfw: map['isNsfw'] == 1,
-      addedAt: DateTime.parse(map['addedAt']),
-      lastParsed: map['lastParsed'] != null ? DateTime.parse(map['lastParsed']) : null,
-      parsedCount: map['parsedCount'] ?? 0,
+      isActive: (map['isActive'] as int) == 1,
+      isNsfw: (map['isNsfw'] as int) == 1,
+      addedAt: DateTime.parse(map['addedAt'] as String),
+      lastParsed: map['lastParsed'] != null ? DateTime.parse(map['lastParsed'] as String) : null,
+      parsedCount: (map['parsedCount'] as int?) ?? 0,
     );
   }
 
