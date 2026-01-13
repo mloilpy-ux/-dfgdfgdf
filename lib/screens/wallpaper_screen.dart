@@ -28,6 +28,7 @@ class _WallpaperScreenState extends State<WallpaperScreen> {
   int _currentIndex = 0;
   bool _isDownloading = false;
   final List<int> _history = [];
+  final Set<String> _errorUrls = {}; // Пропускать ошибочные изображения
 
   @override
   void initState() {
@@ -51,13 +52,12 @@ class _WallpaperScreenState extends State<WallpaperScreen> {
   void _nextImage() {
     HapticFeedback.selectionClick();
     
-    final contentProvider = context.read<ContentProvider>();
-    final settings = context.read<SettingsProvider>();
-    
-    final items = _getFilteredItems(contentProvider, settings);
+    final items = _getFilteredItems();
     if (items.isEmpty) return;
 
     _history.add(_currentIndex);
+    
+    final contentProvider = context.read<ContentProvider>();
     contentProvider.markAsShown(items[_currentIndex].id);
 
     setState(() {
@@ -72,8 +72,11 @@ class _WallpaperScreenState extends State<WallpaperScreen> {
     });
   }
 
-  List<ContentItem> _getFilteredItems(ContentProvider provider, SettingsProvider settings) {
-    var items = provider.items;
+  List<ContentItem> _getFilteredItems() {
+    final contentProvider = context.read<ContentProvider>();
+    final settings = context.read<SettingsProvider>();
+    
+    var items = contentProvider.items;
     
     // Фильтр NSFW
     if (!settings.showNsfw) {
@@ -82,6 +85,9 @@ class _WallpaperScreenState extends State<WallpaperScreen> {
     
     // Только фото (без GIF и видео)
     items = items.where((item) => !item.isGif).toList();
+    
+    // Убрать ошибочные
+    items = items.where((item) => !_errorUrls.contains(item.mediaUrl)).toList();
     
     return items;
   }
@@ -93,8 +99,7 @@ class _WallpaperScreenState extends State<WallpaperScreen> {
     try {
       final response = await http.get(Uri.parse(item.mediaUrl));
       final dir = await getExternalStorageDirectory();
-      final ext = item.isGif ? 'mp4' : 'jpg';
-      final fileName = 'furry_${DateTime.now().millisecondsSinceEpoch}.$ext';
+      final fileName = 'furry_${DateTime.now().millisecondsSinceEpoch}.jpg';
       final file = File('${dir!.path}/$fileName');
       await file.writeAsBytes(response.bodyBytes);
       
@@ -139,6 +144,17 @@ class _WallpaperScreenState extends State<WallpaperScreen> {
     }
   }
 
+  void _handleError(String url) {
+    setState(() {
+      _errorUrls.add(url);
+    });
+    
+    // Автоматически следующее изображение через 300мс
+    Future.delayed(const Duration(milliseconds: 300), () {
+      if (mounted) _nextImage();
+    });
+  }
+
   String _getSourceIcon(String sourceId) {
     if (sourceId.contains('reddit')) return '🔴';
     if (sourceId.contains('twitter')) return '🐦';
@@ -152,7 +168,7 @@ class _WallpaperScreenState extends State<WallpaperScreen> {
       backgroundColor: Colors.black,
       body: Consumer2<ContentProvider, SettingsProvider>(
         builder: (context, contentProvider, settings, _) {
-          final items = _getFilteredItems(contentProvider, settings);
+          final items = _getFilteredItems();
 
           if (contentProvider.isLoading) {
             return const Center(child: FurryLoadingIndicator());
@@ -189,21 +205,35 @@ class _WallpaperScreenState extends State<WallpaperScreen> {
             },
             onVerticalDragEnd: (details) {
               if (details.primaryVelocity! < -500) {
-                // ВВЕРХ
+                // ВВЕРХ - избранное
                 _saveToFavorites(currentItem);
               } else if (details.primaryVelocity! > 500) {
-                // ВНИЗ
+                // ВНИЗ - скачать
                 _downloadImage(currentItem);
               }
             },
             child: Stack(
               fit: StackFit.expand,
               children: [
+                // ИЗОБРАЖЕНИЕ НА ВЕСЬ ЭКРАН
                 CachedNetworkImage(
                   imageUrl: currentItem.mediaUrl,
                   fit: BoxFit.contain,
                   placeholder: (_, __) => const Center(child: FurryLoadingIndicator()),
-                  errorWidget: (_, __, ___) => const Center(child: Icon(Icons.error, size: 64, color: Colors.red)),
+                  errorWidget: (_, url, __) {
+                    // АВТОПРОПУСК ПРИ ОШИБКЕ
+                    _handleError(url);
+                    return const Center(
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(Icons.skip_next, size: 64, color: Colors.orange),
+                          SizedBox(height: 8),
+                          Text('Пропуск...', style: TextStyle(color: Colors.white)),
+                        ],
+                      ),
+                    );
+                  },
                 ),
                 
                 // МЕНЮ ВВЕРХУ
@@ -223,34 +253,48 @@ class _WallpaperScreenState extends State<WallpaperScreen> {
                     child: Row(
                       mainAxisAlignment: MainAxisAlignment.spaceBetween,
                       children: [
+                        // ЛЕВАЯ ГРУППА
                         Row(
                           children: [
                             IconButton(
                               icon: const Icon(Icons.source, color: Colors.white),
                               onPressed: () {
-                                Navigator.push(context, MaterialPageRoute(builder: (context) => const SourcesScreen()));
+                                Navigator.push(
+                                  context,
+                                  MaterialPageRoute(builder: (context) => const SourcesScreen()),
+                                );
                               },
                             ),
                             IconButton(
                               icon: const Icon(Icons.gif_box, color: Colors.white),
                               onPressed: () {
-                                Navigator.push(context, MaterialPageRoute(builder: (context) => const GifsScreen()));
+                                Navigator.push(
+                                  context,
+                                  MaterialPageRoute(builder: (context) => const GifsScreen()),
+                                );
                               },
                             ),
                             IconButton(
                               icon: const Icon(Icons.video_library, color: Colors.white),
                               onPressed: () {
-                                Navigator.push(context, MaterialPageRoute(builder: (context) => const VideosScreen()));
+                                Navigator.push(
+                                  context,
+                                  MaterialPageRoute(builder: (context) => const VideosScreen()),
+                                );
                               },
                             ),
                           ],
                         ),
+                        // ПРАВАЯ ГРУППА
                         Row(
                           children: [
                             IconButton(
                               icon: const Icon(Icons.favorite, color: Colors.pink),
                               onPressed: () {
-                                Navigator.push(context, MaterialPageRoute(builder: (context) => const FavoritesScreen()));
+                                Navigator.push(
+                                  context,
+                                  MaterialPageRoute(builder: (context) => const FavoritesScreen()),
+                                );
                               },
                             ),
                             Consumer<SettingsProvider>(
@@ -259,13 +303,22 @@ class _WallpaperScreenState extends State<WallpaperScreen> {
                                   settings.showNsfw ? Icons.visibility : Icons.visibility_off,
                                   color: settings.showNsfw ? Colors.red : Colors.grey,
                                 ),
-                                onPressed: settings.toggleNsfw,
+                                onPressed: () {
+                                  settings.toggleNsfw();
+                                  setState(() {
+                                    _currentIndex = 0;
+                                    _history.clear();
+                                  });
+                                },
                               ),
                             ),
                             IconButton(
                               icon: const Icon(Icons.article, color: Colors.amber),
                               onPressed: () {
-                                Navigator.push(context, MaterialPageRoute(builder: (context) => const LogsScreen()));
+                                Navigator.push(
+                                  context,
+                                  MaterialPageRoute(builder: (context) => const LogsScreen()),
+                                );
                               },
                             ),
                             IconButton(
@@ -279,7 +332,7 @@ class _WallpaperScreenState extends State<WallpaperScreen> {
                   ),
                 ),
                 
-                // КНОПКА ИСТОЧНИКА
+                // КНОПКА ИСТОЧНИКА (НИЖНИЙ ЛЕВЫЙ УГОЛ)
                 Positioned(
                   bottom: 20,
                   left: 20,
@@ -303,7 +356,7 @@ class _WallpaperScreenState extends State<WallpaperScreen> {
                   ),
                 ),
                 
-                // СЧЁТЧИК
+                // СЧЁТЧИК (НИЖНИЙ ПРАВЫЙ УГОЛ)
                 Positioned(
                   bottom: 20,
                   right: 20,
