@@ -26,7 +26,8 @@ dependencies:
   # UI
   url_launcher: ^6.2.4
   video_player: ^2.8.2
-
+  path_provider: ^2.1.1  # ДОБАВЬТЕ ЭТУ СТРОКУ
+    
 dev_dependencies:
   flutter_test:
     sdk: flutter
