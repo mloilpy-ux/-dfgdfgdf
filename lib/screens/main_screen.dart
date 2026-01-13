@@ -4,7 +4,7 @@ import '../providers/sources_provider.dart';
 import '../providers/content_provider.dart';
 import '../providers/settings_provider.dart';
 import '../providers/logger_provider.dart';
-import 'feed_tab.dart';
+// import 'feed_tab.dart';  ← ЗАКОММЕНТИРУЙТЕ ИЛИ УДАЛИТЕ
 import 'gifs_tab.dart';
 import 'sources_tab.dart';
 import 'favorites_tab.dart';
@@ -21,7 +21,7 @@ class _MainScreenState extends State<MainScreen> {
   int _currentIndex = 0;
 
   final List<Widget> _tabs = [
-    const FeedTab(),
+    // const FeedTab(),  ← УДАЛИТЕ ЭТУ СТРОКУ
     const GifsTab(),
     const SourcesTab(),
     const FavoritesTab(),
@@ -64,10 +64,11 @@ class _MainScreenState extends State<MainScreen> {
           setState(() => _currentIndex = index);
         },
         destinations: const [
-          NavigationDestination(
-            icon: Icon(Icons.home),
-            label: 'Лента',
-          ),
+          // УДАЛИТЕ "Лента"
+          // NavigationDestination(
+          //   icon: Icon(Icons.home),
+          //   label: 'Лента',
+          // ),
           NavigationDestination(
             icon: Icon(Icons.gif_box),
             label: 'GIF',
