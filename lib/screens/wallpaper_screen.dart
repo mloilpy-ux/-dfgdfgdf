@@ -14,6 +14,7 @@ import 'logs_screen.dart';
 import 'favorites_screen.dart';
 import 'sources_screen.dart';
 import 'gifs_screen.dart';
+import 'videos_screen.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 class WallpaperScreen extends StatefulWidget {
@@ -27,8 +28,6 @@ class _WallpaperScreenState extends State<WallpaperScreen> {
   int _currentIndex = 0;
   bool _isDownloading = false;
   final List<int> _history = [];
-  int _tapCount = 0;
-  DateTime? _lastTapTime;
 
   @override
   void initState() {
@@ -55,10 +54,7 @@ class _WallpaperScreenState extends State<WallpaperScreen> {
     final contentProvider = context.read<ContentProvider>();
     final settings = context.read<SettingsProvider>();
     
-    final items = settings.showNsfw
-        ? contentProvider.items
-        : contentProvider.items.where((item) => !item.isNsfw).toList();
-
+    final items = _getFilteredItems(contentProvider, settings);
     if (items.isEmpty) return;
 
     _history.add(_currentIndex);
@@ -71,10 +67,23 @@ class _WallpaperScreenState extends State<WallpaperScreen> {
 
   void _previousImage() {
     if (_history.isEmpty) return;
-    
     setState(() {
       _currentIndex = _history.removeLast();
     });
+  }
+
+  List<ContentItem> _getFilteredItems(ContentProvider provider, SettingsProvider settings) {
+    var items = provider.items;
+    
+    // Фильтр NSFW
+    if (!settings.showNsfw) {
+      items = items.where((item) => !item.isNsfw).toList();
+    }
+    
+    // Только фото (без GIF и видео)
+    items = items.where((item) => !item.isGif).toList();
+    
+    return items;
   }
 
   Future<void> _downloadImage(ContentItem item) async {
@@ -84,7 +93,8 @@ class _WallpaperScreenState extends State<WallpaperScreen> {
     try {
       final response = await http.get(Uri.parse(item.mediaUrl));
       final dir = await getExternalStorageDirectory();
-      final fileName = 'furry_${DateTime.now().millisecondsSinceEpoch}.jpg';
+      final ext = item.isGif ? 'mp4' : 'jpg';
+      final fileName = 'furry_${DateTime.now().millisecondsSinceEpoch}.$ext';
       final file = File('${dir!.path}/$fileName');
       await file.writeAsBytes(response.bodyBytes);
       
@@ -101,7 +111,7 @@ class _WallpaperScreenState extends State<WallpaperScreen> {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
-            content: Text('❌ Ошибка'),
+            content: Text('❌'),
             duration: Duration(seconds: 1),
             backgroundColor: Colors.red,
           ),
@@ -129,60 +139,6 @@ class _WallpaperScreenState extends State<WallpaperScreen> {
     }
   }
 
-  void _handleTap() {
-    final now = DateTime.now();
-    
-    if (_lastTapTime != null && now.difference(_lastTapTime!) < const Duration(seconds: 1)) {
-      _tapCount++;
-    } else {
-      _tapCount = 1;
-    }
-    
-    _lastTapTime = now;
-    
-    if (_tapCount == 3) {
-      _showOwOEasterEgg();
-      _tapCount = 0;
-    }
-  }
-
-  void _showOwOEasterEgg() {
-    HapticFeedback.heavyImpact();
-    showDialog(
-      context: context,
-      builder: (context) => Dialog(
-        backgroundColor: Colors.transparent,
-        child: Center(
-          child: Container(
-            padding: const EdgeInsets.all(32),
-            decoration: BoxDecoration(
-              gradient: const LinearGradient(
-                colors: [Colors.purple, Colors.pink, Colors.orange],
-                begin: Alignment.topLeft,
-                end: Alignment.bottomRight,
-              ),
-              borderRadius: BorderRadius.circular(24),
-            ),
-            child: const Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Text('OwO', style: TextStyle(fontSize: 80, fontWeight: FontWeight.bold, color: Colors.white)),
-                SizedBox(height: 16),
-                Text('What\'s this?', style: TextStyle(fontSize: 24, color: Colors.white)),
-                SizedBox(height: 8),
-                Text('🐾 *nuzzles* 🐾', style: TextStyle(fontSize: 20, color: Colors.white)),
-              ],
-            ),
-          ),
-        ),
-      ),
-    );
-    
-    Future.delayed(const Duration(seconds: 2), () {
-      if (mounted) Navigator.pop(context);
-    });
-  }
-
   String _getSourceIcon(String sourceId) {
     if (sourceId.contains('reddit')) return '🔴';
     if (sourceId.contains('twitter')) return '🐦';
@@ -196,9 +152,7 @@ class _WallpaperScreenState extends State<WallpaperScreen> {
       backgroundColor: Colors.black,
       body: Consumer2<ContentProvider, SettingsProvider>(
         builder: (context, contentProvider, settings, _) {
-          final items = settings.showNsfw
-              ? contentProvider.items
-              : contentProvider.items.where((item) => !item.isNsfw).toList();
+          final items = _getFilteredItems(contentProvider, settings);
 
           if (contentProvider.isLoading) {
             return const Center(child: FurryLoadingIndicator());
@@ -223,18 +177,22 @@ class _WallpaperScreenState extends State<WallpaperScreen> {
           final currentItem = items[_currentIndex];
 
           return GestureDetector(
-            onTap: _handleTap,
+            // СВАЙП СЛЕВА → НАПРАВО = ДАЛЕЕ
             onHorizontalDragEnd: (details) {
               if (details.primaryVelocity! > 500) {
+                // СЛЕВА → НАПРАВО
                 _nextImage();
               } else if (details.primaryVelocity! < -500) {
+                // СПРАВА → НАЛЕВО
                 _previousImage();
               }
             },
             onVerticalDragEnd: (details) {
               if (details.primaryVelocity! < -500) {
+                // ВВЕРХ
                 _saveToFavorites(currentItem);
               } else if (details.primaryVelocity! > 500) {
+                // ВНИЗ
                 _downloadImage(currentItem);
               }
             },
@@ -248,6 +206,7 @@ class _WallpaperScreenState extends State<WallpaperScreen> {
                   errorWidget: (_, __, ___) => const Center(child: Icon(Icons.error, size: 64, color: Colors.red)),
                 ),
                 
+                // МЕНЮ ВВЕРХУ
                 Positioned(
                   top: 0,
                   left: 0,
@@ -268,11 +227,21 @@ class _WallpaperScreenState extends State<WallpaperScreen> {
                           children: [
                             IconButton(
                               icon: const Icon(Icons.source, color: Colors.white),
-                              onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const SourcesScreen())),
+                              onPressed: () {
+                                Navigator.push(context, MaterialPageRoute(builder: (context) => const SourcesScreen()));
+                              },
                             ),
                             IconButton(
                               icon: const Icon(Icons.gif_box, color: Colors.white),
-                              onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const GifsScreen())),
+                              onPressed: () {
+                                Navigator.push(context, MaterialPageRoute(builder: (context) => const GifsScreen()));
+                              },
+                            ),
+                            IconButton(
+                              icon: const Icon(Icons.video_library, color: Colors.white),
+                              onPressed: () {
+                                Navigator.push(context, MaterialPageRoute(builder: (context) => const VideosScreen()));
+                              },
                             ),
                           ],
                         ),
@@ -280,17 +249,24 @@ class _WallpaperScreenState extends State<WallpaperScreen> {
                           children: [
                             IconButton(
                               icon: const Icon(Icons.favorite, color: Colors.pink),
-                              onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const FavoritesScreen())),
+                              onPressed: () {
+                                Navigator.push(context, MaterialPageRoute(builder: (context) => const FavoritesScreen()));
+                              },
                             ),
                             Consumer<SettingsProvider>(
                               builder: (context, settings, _) => IconButton(
-                                icon: Icon(settings.showNsfw ? Icons.visibility : Icons.visibility_off, color: settings.showNsfw ? Colors.red : Colors.grey),
+                                icon: Icon(
+                                  settings.showNsfw ? Icons.visibility : Icons.visibility_off,
+                                  color: settings.showNsfw ? Colors.red : Colors.grey,
+                                ),
                                 onPressed: settings.toggleNsfw,
                               ),
                             ),
                             IconButton(
                               icon: const Icon(Icons.article, color: Colors.amber),
-                              onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const LogsScreen())),
+                              onPressed: () {
+                                Navigator.push(context, MaterialPageRoute(builder: (context) => const LogsScreen()));
+                              },
                             ),
                             IconButton(
                               icon: const Icon(Icons.refresh, color: Colors.white),
@@ -303,6 +279,7 @@ class _WallpaperScreenState extends State<WallpaperScreen> {
                   ),
                 ),
                 
+                // КНОПКА ИСТОЧНИКА
                 Positioned(
                   bottom: 20,
                   left: 20,
@@ -314,19 +291,32 @@ class _WallpaperScreenState extends State<WallpaperScreen> {
                     },
                     child: Container(
                       padding: const EdgeInsets.all(12),
-                      decoration: BoxDecoration(color: Colors.black.withOpacity(0.7), shape: BoxShape.circle),
-                      child: Text(_getSourceIcon(currentItem.sourceId), style: const TextStyle(fontSize: 24)),
+                      decoration: BoxDecoration(
+                        color: Colors.black.withOpacity(0.7),
+                        shape: BoxShape.circle,
+                      ),
+                      child: Text(
+                        _getSourceIcon(currentItem.sourceId),
+                        style: const TextStyle(fontSize: 24),
+                      ),
                     ),
                   ),
                 ),
                 
+                // СЧЁТЧИК
                 Positioned(
                   bottom: 20,
                   right: 20,
                   child: Container(
                     padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                    decoration: BoxDecoration(color: Colors.black.withOpacity(0.7), borderRadius: BorderRadius.circular(20)),
-                    child: Text('${_currentIndex + 1}/${items.length}', style: const TextStyle(color: Colors.white, fontSize: 12)),
+                    decoration: BoxDecoration(
+                      color: Colors.black.withOpacity(0.7),
+                      borderRadius: BorderRadius.circular(20),
+                    ),
+                    child: Text(
+                      '${_currentIndex + 1}/${items.length}',
+                      style: const TextStyle(color: Colors.white, fontSize: 12),
+                    ),
                   ),
                 ),
               ],
