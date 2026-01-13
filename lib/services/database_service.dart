@@ -11,6 +11,17 @@ class DatabaseService {
   final LoggerService _logger = LoggerService.instance;
 
   DatabaseService._init();
+  Future<bool> contentExists(String id) async {
+  try {
+    final db = await database;
+    final result = await db.query('content', where: 'id = ?', whereArgs: [id], limit: 1);
+    return result.isNotEmpty;
+  } catch (e) {
+    _logger.log('❌ Ошибка проверки существования: $e', isError: true);
+    return false;
+  }
+}
+
 
   Future<Database> get database async {
     if (_database != null) return _database!;
