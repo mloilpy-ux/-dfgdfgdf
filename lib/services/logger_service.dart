@@ -20,5 +20,6 @@ class LoggerService {
 
   void clear() {
     _logs.clear();
+    log('🗑️ Логи очищены');
   }
 }
