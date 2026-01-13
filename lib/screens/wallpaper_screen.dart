@@ -10,6 +10,8 @@ import '../providers/settings_provider.dart';
 import '../models/content_item.dart';
 import 'logs_screen.dart';
 import 'favorites_screen.dart';
+import 'sources_screen.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 class WallpaperScreen extends StatefulWidget {
   const WallpaperScreen({super.key});
@@ -51,7 +53,6 @@ class _WallpaperScreenState extends State<WallpaperScreen> {
 
     if (items.isEmpty) return;
 
-    // Отметить текущее как просмотренное
     contentProvider.markAsShown(items[_currentIndex].id);
 
     setState(() {
@@ -98,11 +99,30 @@ class _WallpaperScreenState extends State<WallpaperScreen> {
     if (mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text(item.isSaved ? '❤️ Добавлено в избранное' : '💔 Удалено из избранного'),
+          content: Text(item.isSaved ? '❤️ Добавлено в избранное' : '💔 Удалено'),
           duration: const Duration(seconds: 1),
         ),
       );
     }
+  }
+
+  Future<void> _setWallpaper(ContentItem item) async {
+    // TODO: Реализовать через нативный код Android
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text('🖼️ Функция установки обоев в разработке\nИспользуйте "Скачать" и установите вручную'),
+        duration: Duration(seconds: 3),
+      ),
+    );
+  }
+
+  String _getSourceName(String sourceId) {
+    final sourcesProvider = context.read<SourcesProvider>();
+    final source = sourcesProvider.sources.firstWhere(
+      (s) => s.id == sourceId,
+      orElse: () => sourcesProvider.sources.first,
+    );
+    return source.name;
   }
 
   String _getSourceIcon(String sourceId) {
@@ -120,7 +140,18 @@ class _WallpaperScreenState extends State<WallpaperScreen> {
         backgroundColor: Colors.black.withOpacity(0.7),
         title: const Text('🐾 Furry Wallpapers'),
         actions: [
-          // Кнопка избранного
+          // Кнопка источников
+          IconButton(
+            icon: const Icon(Icons.source, color: Colors.orange),
+            onPressed: () {
+              Navigator.push(
+                context,
+                MaterialPageRoute(builder: (_) => const SourcesScreen()),
+              );
+            },
+            tooltip: 'Источники',
+          ),
+          // Избранное
           IconButton(
             icon: const Icon(Icons.favorite, color: Colors.pink),
             onPressed: () {
@@ -141,7 +172,7 @@ class _WallpaperScreenState extends State<WallpaperScreen> {
               tooltip: settings.showNsfw ? 'Скрыть NSFW' : 'Показать NSFW',
             ),
           ),
-          // Кнопка логов
+          // Логи
           IconButton(
             icon: const Icon(Icons.article, color: Colors.amber),
             onPressed: () {
@@ -184,18 +215,13 @@ class _WallpaperScreenState extends State<WallpaperScreen> {
                 children: [
                   const Icon(Icons.wallpaper, size: 64, color: Colors.grey),
                   const SizedBox(height: 16),
-                  const Text(
-                    'Нет обоев',
-                    style: TextStyle(fontSize: 20, color: Colors.white),
-                  ),
+                  const Text('Нет обоев', style: TextStyle(fontSize: 20, color: Colors.white)),
                   const SizedBox(height: 8),
                   ElevatedButton.icon(
                     onPressed: _loadContent,
                     icon: const Icon(Icons.download),
                     label: const Text('Загрузить обои'),
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: Colors.deepOrange,
-                    ),
+                    style: ElevatedButton.styleFrom(backgroundColor: Colors.deepOrange),
                   ),
                 ],
               ),
@@ -205,7 +231,14 @@ class _WallpaperScreenState extends State<WallpaperScreen> {
           final currentItem = items[_currentIndex];
 
           return GestureDetector(
-            // Свайпы: вверх = сохранить, вниз = скачать, вправо = далее
+            // СВАЙП ВЛЕВО - далее
+            onHorizontalDragEnd: (details) {
+              if (details.primaryVelocity! < -500) {
+                // Свайп ВЛЕВО - следующее
+                _nextImage();
+              }
+            },
+            // Свайпы вверх/вниз
             onVerticalDragEnd: (details) {
               if (details.primaryVelocity! < -500) {
                 // Свайп вверх - сохранить
@@ -215,15 +248,8 @@ class _WallpaperScreenState extends State<WallpaperScreen> {
                 _downloadImage(currentItem);
               }
             },
-            onHorizontalDragEnd: (details) {
-              if (details.primaryVelocity! > 500) {
-                // Свайп вправо - далее
-                _nextImage();
-              }
-            },
             child: Column(
               children: [
-                // Изображение
                 Expanded(
                   child: Stack(
                     fit: StackFit.expand,
@@ -238,50 +264,57 @@ class _WallpaperScreenState extends State<WallpaperScreen> {
                           child: Icon(Icons.error, size: 64, color: Colors.red),
                         ),
                       ),
-                      // Счётчик и источник
+                      // Счётчик
                       Positioned(
                         top: 16,
                         right: 16,
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.end,
-                          children: [
-                            Container(
-                              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                              decoration: BoxDecoration(
-                                color: Colors.black.withOpacity(0.7),
-                                borderRadius: BorderRadius.circular(20),
-                              ),
-                              child: Text(
-                                '${_currentIndex + 1} / ${items.length}',
-                                style: const TextStyle(
-                                  color: Colors.white,
-                                  fontWeight: FontWeight.bold,
-                                ),
-                              ),
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                          decoration: BoxDecoration(
+                            color: Colors.black.withOpacity(0.7),
+                            borderRadius: BorderRadius.circular(20),
+                          ),
+                          child: Text(
+                            '${_currentIndex + 1} / ${items.length}',
+                            style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
+                          ),
+                        ),
+                      ),
+                      // КНОПКА ИСТОЧНИКА (КЛИКАБЕЛЬНАЯ)
+                      Positioned(
+                        top: 60,
+                        right: 16,
+                        child: GestureDetector(
+                          onTap: () async {
+                            if (currentItem.postUrl != null) {
+                              await launchUrl(Uri.parse(currentItem.postUrl!));
+                            }
+                          },
+                          child: Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                            decoration: BoxDecoration(
+                              color: Colors.deepOrange.withOpacity(0.9),
+                              borderRadius: BorderRadius.circular(20),
                             ),
-                            const SizedBox(height: 8),
-                            // Источник
-                            Container(
-                              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                              decoration: BoxDecoration(
-                                color: Colors.deepOrange.withOpacity(0.8),
-                                borderRadius: BorderRadius.circular(20),
-                              ),
-                              child: Text(
-                                '${_getSourceIcon(currentItem.sourceId)} Источник',
-                                style: const TextStyle(
-                                  color: Colors.white,
-                                  fontSize: 12,
-                                  fontWeight: FontWeight.bold,
+                            child: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Text(_getSourceIcon(currentItem.sourceId), style: const TextStyle(fontSize: 14)),
+                                const SizedBox(width: 4),
+                                Text(
+                                  _getSourceName(currentItem.sourceId),
+                                  style: const TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.bold),
                                 ),
-                              ),
+                                const SizedBox(width: 4),
+                                const Icon(Icons.open_in_new, color: Colors.white, size: 12),
+                              ],
                             ),
-                          ],
+                          ),
                         ),
                       ),
                       // Информация внизу
                       Positioned(
-                        bottom: 100,
+                        bottom: 120,
                         left: 0,
                         right: 0,
                         child: Container(
@@ -290,10 +323,7 @@ class _WallpaperScreenState extends State<WallpaperScreen> {
                             gradient: LinearGradient(
                               begin: Alignment.bottomCenter,
                               end: Alignment.topCenter,
-                              colors: [
-                                Colors.black.withOpacity(0.9),
-                                Colors.transparent,
-                              ],
+                              colors: [Colors.black.withOpacity(0.9), Colors.transparent],
                             ),
                           ),
                           child: Column(
@@ -301,29 +331,19 @@ class _WallpaperScreenState extends State<WallpaperScreen> {
                             children: [
                               Text(
                                 currentItem.title,
-                                style: const TextStyle(
-                                  color: Colors.white,
-                                  fontSize: 18,
-                                  fontWeight: FontWeight.bold,
-                                ),
+                                style: const TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold),
                                 maxLines: 2,
                                 overflow: TextOverflow.ellipsis,
                               ),
                               if (currentItem.author != null)
                                 Text(
                                   'by ${currentItem.author}',
-                                  style: TextStyle(
-                                    color: Colors.white.withOpacity(0.8),
-                                    fontSize: 14,
-                                  ),
+                                  style: TextStyle(color: Colors.white.withOpacity(0.8), fontSize: 14),
                                 ),
                               const SizedBox(height: 4),
                               Text(
-                                '💡 Свайп ⬆️ сохранить | ⬇️ скачать | ➡️ далее',
-                                style: TextStyle(
-                                  color: Colors.grey.shade400,
-                                  fontSize: 11,
-                                ),
+                                '💡 Свайп ⬆️ сохранить | ⬇️ скачать | ⬅️ далее',
+                                style: TextStyle(color: Colors.grey.shade400, fontSize: 11),
                               ),
                             ],
                           ),
@@ -332,7 +352,7 @@ class _WallpaperScreenState extends State<WallpaperScreen> {
                     ],
                   ),
                 ),
-                // Три кнопки
+                // ЧЕТЫРЕ КНОПКИ
                 Container(
                   padding: const EdgeInsets.all(16),
                   decoration: BoxDecoration(
@@ -346,7 +366,6 @@ class _WallpaperScreenState extends State<WallpaperScreen> {
                     ],
                   ),
                   child: Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceEvenly,
                     children: [
                       // Далее
                       Expanded(
@@ -362,12 +381,26 @@ class _WallpaperScreenState extends State<WallpaperScreen> {
                         ),
                       ),
                       const SizedBox(width: 8),
+                      // Установить
+                      Expanded(
+                        child: ElevatedButton.icon(
+                          onPressed: () => _setWallpaper(currentItem),
+                          icon: const Icon(Icons.wallpaper),
+                          label: const Text('Установить'),
+                          style: ElevatedButton.styleFrom(
+                            padding: const EdgeInsets.symmetric(vertical: 16),
+                            backgroundColor: Colors.purple,
+                            foregroundColor: Colors.white,
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 8),
                       // Сохранить
                       Expanded(
                         child: ElevatedButton.icon(
                           onPressed: () => _saveToFavorites(currentItem),
                           icon: Icon(currentItem.isSaved ? Icons.favorite : Icons.favorite_border),
-                          label: const Text('Сохранить'),
+                          label: const Text('❤️'),
                           style: ElevatedButton.styleFrom(
                             padding: const EdgeInsets.symmetric(vertical: 16),
                             backgroundColor: Colors.pink,
@@ -387,7 +420,7 @@ class _WallpaperScreenState extends State<WallpaperScreen> {
                                   child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
                                 )
                               : const Icon(Icons.download),
-                          label: const Text('Скачать'),
+                          label: const Text('💾'),
                           style: ElevatedButton.styleFrom(
                             padding: const EdgeInsets.symmetric(vertical: 16),
                             backgroundColor: Colors.green,
