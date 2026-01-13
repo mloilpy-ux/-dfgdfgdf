@@ -84,7 +84,7 @@ class SourcesProvider with ChangeNotifier {
       await _db.updateSource(updated);
       await loadSources();
     } catch (e) {
-      _logger.log('❌ Ошибка обновления статистики источника: $e', isError: true);
+      _logger.log('❌ Ошибка обновления статистики: $e', isError: true);
     }
   }
 }
