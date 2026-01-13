@@ -1,4 +1,3 @@
-import 'package:webview_flutter/webview_flutter.dart';
 import 'package:html/parser.dart' as html_parser;
 import 'package:http/http.dart' as http;
 import 'logger_service.dart';
@@ -10,7 +9,6 @@ class WebScraperService {
   
   WebScraperService._init();
 
-  // Парсинг Twitter/X через веб-версию
   Future<List<ContentItem>> parseTwitter(String username, String sourceId) async {
     _logger.log('🐦 Парсинг Twitter: @$username');
     
@@ -20,9 +18,7 @@ class WebScraperService {
       
       final response = await http.get(
         Uri.parse(url),
-        headers: {
-          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
-        },
+        headers: {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'},
       );
 
       if (response.statusCode != 200) {
@@ -31,9 +27,7 @@ class WebScraperService {
 
       final document = html_parser.parse(response.body);
       final items = <ContentItem>[];
-
       final tweets = document.querySelectorAll('.timeline-item');
-      _logger.log('🔍 Найдено твитов: ${tweets.length}');
 
       for (var tweet in tweets.take(20)) {
         try {
@@ -41,7 +35,7 @@ class WebScraperService {
           
           for (var img in images) {
             final imgUrl = img.attributes['href'];
-            final text = tweet.querySelector('.tweet-content')?.text ?? 'No title';
+            final text = tweet.querySelector('.tweet-content')?.text ?? 'Twitter post';
             final author = tweet.querySelector('.fullname')?.text ?? username;
 
             if (imgUrl != null && imgUrl.isNotEmpty) {
@@ -63,28 +57,24 @@ class WebScraperService {
         }
       }
 
-      _logger.log('✅ Twitter: получено ${items.length} изображений');
+      _logger.log('✅ Twitter: ${items.length} изображений');
       return items;
     } catch (e) {
-      _logger.log('❌ Ошибка парсинга Twitter: $e', isError: true);
+      _logger.log('❌ Ошибка Twitter: $e', isError: true);
       return [];
     }
   }
 
-  // Парсинг Telegram через веб-версию
   Future<List<ContentItem>> parseTelegram(String channelUrl, String sourceId) async {
     _logger.log('✈️ Парсинг Telegram: $channelUrl');
     
     try {
-      // Используем t.me preview
       final url = channelUrl.replaceAll('https://t.me/', 'https://t.me/s/');
       _logger.log('📡 Запрос: $url');
       
       final response = await http.get(
         Uri.parse(url),
-        headers: {
-          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
-        },
+        headers: {'User-Agent': 'Mozilla/5.0'},
       );
 
       if (response.statusCode != 200) {
@@ -93,17 +83,12 @@ class WebScraperService {
 
       final document = html_parser.parse(response.body);
       final items = <ContentItem>[];
-
       final messages = document.querySelectorAll('.tgme_widget_message');
-      _logger.log('🔍 Найдено сообщений: ${messages.length}');
 
       for (var message in messages.take(30)) {
         try {
           final photo = message.querySelector('.tgme_widget_message_photo_wrap');
-          final video = message.querySelector('.tgme_widget_message_video_thumb');
-          
           String? mediaUrl;
-          bool isGif = false;
 
           if (photo != null) {
             final style = photo.attributes['style'] ?? '';
@@ -111,30 +96,21 @@ class WebScraperService {
             if (match != null) {
               mediaUrl = match.group(1);
             }
-          } else if (video != null) {
-            final style = video.attributes['style'] ?? '';
-            final match = RegExp(r"url\('([^']+)'\)").firstMatch(style);
-            if (match != null) {
-              mediaUrl = match.group(1);
-              isGif = true;
-            }
           }
 
           if (mediaUrl != null && mediaUrl.isNotEmpty) {
             final text = message.querySelector('.tgme_widget_message_text')?.text ?? 'Telegram post';
-            final dateStr = message.querySelector('.tgme_widget_message_date time')?.attributes['datetime'];
-            final postUrl = message.querySelector('.tgme_widget_message_date')?.attributes['href'];
 
             items.add(ContentItem(
               id: 'telegram_${mediaUrl.hashCode}',
               sourceId: sourceId,
               title: text.length > 100 ? '${text.substring(0, 100)}...' : text,
-              author: 'Telegram Channel',
+              author: 'Telegram',
               mediaUrl: mediaUrl,
-              isGif: isGif,
+              isGif: false,
               isNsfw: _detectNsfwFromText(text),
-              createdAt: dateStr != null ? DateTime.parse(dateStr) : DateTime.now(),
-              postUrl: postUrl,
+              createdAt: DateTime.now(),
+              postUrl: channelUrl,
             ));
           }
         } catch (e) {
@@ -142,21 +118,16 @@ class WebScraperService {
         }
       }
 
-      _logger.log('✅ Telegram: получено ${items.length} изображений');
+      _logger.log('✅ Telegram: ${items.length} изображений');
       return items;
     } catch (e) {
-      _logger.log('❌ Ошибка парсинга Telegram: $e', isError: true);
+      _logger.log('❌ Ошибка Telegram: $e', isError: true);
       return [];
     }
   }
 
-  // Простая эвристика NSFW по тексту
   bool _detectNsfwFromText(String text) {
-    final nsfwKeywords = [
-      'nsfw', '18+', 'adult', 'explicit', 'porn', 'sex', 'nude', 'naked',
-      'hentai', 'lewd', 'yiff', 'r34', 'rule34',
-    ];
-    
+    final nsfwKeywords = ['nsfw', '18+', 'adult', 'porn', 'sex', 'nude', 'naked', 'hentai', 'lewd', 'yiff'];
     final lowerText = text.toLowerCase();
     return nsfwKeywords.any((keyword) => lowerText.contains(keyword));
   }
