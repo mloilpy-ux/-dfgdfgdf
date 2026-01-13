@@ -227,7 +227,7 @@ class _WallpaperScreenState extends State<WallpaperScreen> {
                             ),
                             IconButton(
                               icon: const Icon(Icons.gif_box, color: Colors.white),
-                              onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const GifsScreen())),
+                              onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => GifsScreen())),
                             ),
                           ],
                         ),
