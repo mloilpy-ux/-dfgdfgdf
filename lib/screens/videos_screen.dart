@@ -9,6 +9,7 @@ import '../providers/content_provider.dart';
 import '../providers/settings_provider.dart';
 import '../models/content_item.dart';
 import '../widgets/furry_loading.dart';
+import '../services/wallpaper_service.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 class VideosScreen extends StatefulWidget {
@@ -108,6 +109,50 @@ class _VideosScreenState extends State<VideosScreen> {
           backgroundColor: item.isSaved ? Colors.pink : Colors.grey,
         ),
       );
+    }
+  }
+
+  Future<void> _setWallpaper(ContentItem item) async {
+    HapticFeedback.heavyImpact();
+    
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) => const Center(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            CircularProgressIndicator(color: Colors.purple),
+            SizedBox(height: 16),
+            Text('Установка... 🐾', style: TextStyle(color: Colors.white, fontSize: 16)),
+          ],
+        ),
+      ),
+    );
+
+    try {
+      final success = await WallpaperService.setWallpaper(item.mediaUrl);
+      
+      if (mounted) {
+        Navigator.pop(context);
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(success ? '🖼️' : '❌'),
+            duration: const Duration(seconds: 1),
+            backgroundColor: success ? Colors.green : Colors.red,
+          ),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        Navigator.pop(context);
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('❌'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
     }
   }
 
@@ -253,6 +298,32 @@ class _VideosScreenState extends State<VideosScreen> {
                       child: Text(
                         _getSourceIcon(currentItem.sourceId),
                         style: const TextStyle(fontSize: 24),
+                      ),
+                    ),
+                  ),
+                ),
+                
+                Positioned(
+                  bottom: 20,
+                  left: 0,
+                  right: 0,
+                  child: Center(
+                    child: GestureDetector(
+                      onTap: () => _setWallpaper(currentItem),
+                      child: Container(
+                        padding: const EdgeInsets.all(16),
+                        decoration: BoxDecoration(
+                          color: Colors.purple.withOpacity(0.9),
+                          shape: BoxShape.circle,
+                          boxShadow: [
+                            BoxShadow(
+                              color: Colors.purple.withOpacity(0.5),
+                              blurRadius: 20,
+                              spreadRadius: 5,
+                            ),
+                          ],
+                        ),
+                        child: const Icon(Icons.wallpaper, color: Colors.white, size: 28),
                       ),
                     ),
                   ),
