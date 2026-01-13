@@ -23,11 +23,8 @@ class ContentProvider with ChangeNotifier {
   Future<void> loadContent({bool onlyGifs = false, bool onlySaved = false}) async {
     _logger.log('📥 Загрузка контента из БД...');
     _items = await _db.getContent(onlyGifs: onlyGifs, onlySaved: onlySaved);
-    
-    // Исключаем просмотренные
     _items = _items.where((item) => !_shownIds.contains(item.id)).toList();
-    
-    _logger.log('✅ Загружено ${_items.length} элементов (без дубликатов)');
+    _logger.log('✅ Загружено ${_items.length} элементов');
     notifyListeners();
   }
 
@@ -42,13 +39,13 @@ class ContentProvider with ChangeNotifier {
 
     try {
       final activeSources = sourcesProvider.activeSources;
-      _logger.log('🚀 Начало парсинга ${activeSources.length} активных источников');
+      _logger.log('🚀 Начало парсинга ${activeSources.length} источников');
 
       int totalAdded = 0;
 
       for (var source in activeSources) {
         try {
-          _logger.log('🔍 Парсинг источника: ${source.name} (${source.type.name})');
+          _logger.log('🔍 Парсинг: ${source.name}');
           
           List<ContentItem> newItems = [];
           
@@ -69,7 +66,6 @@ class ContentProvider with ChangeNotifier {
               break;
           }
 
-          // Проверка на дубликаты
           int addedCount = 0;
           for (var item in newItems) {
             final wasShown = await _db.wasShown(item.id);
@@ -82,20 +78,19 @@ class ContentProvider with ChangeNotifier {
           }
 
           totalAdded += addedCount;
-          _logger.log('✅ ${source.name}: добавлено $addedCount новых (пропущено ${newItems.length - addedCount} дубликатов)');
-          
+          _logger.log('✅ ${source.name}: +$addedCount новых');
           await sourcesProvider.updateSourceParsedCount(source.id);
           
         } catch (e) {
-          _logger.log('❌ Ошибка парсинга ${source.name}: $e', isError: true);
+          _logger.log('❌ ${source.name}: $e', isError: true);
         }
       }
 
-      _logger.log('🎉 Парсинг завершен! Всего добавлено: $totalAdded новых артов');
+      _logger.log('🎉 Парсинг завершен! Добавлено: $totalAdded');
       await loadContent();
       
     } catch (e) {
-      _logger.log('❌ Критическая ошибка парсинга: $e', isError: true);
+      _logger.log('❌ Критическая ошибка: $e', isError: true);
     } finally {
       _isLoading = false;
       notifyListeners();
@@ -103,15 +98,15 @@ class ContentProvider with ChangeNotifier {
   }
 
   String? _extractTwitterUsername(String url) {
-    final match = RegExp(r'twitter\.com/([^/]+)|x\.com/([^/]+)').firstMatch(url);
-    return match?.group(1) ?? match?.group(2);
+    final match = RegExp(r'(?:twitter|x)\.com/([^/]+)').firstMatch(url);
+    return match?.group(1);
   }
 
   Future<void> toggleSave(ContentItem item) async {
     try {
       final updated = item.copyWith(isSaved: !item.isSaved);
       await _db.updateContent(updated);
-      _logger.log('${updated.isSaved ? "💾 Сохранено" : "🗑️ Удалено из сохранённых"}: ${item.title}');
+      _logger.log('${updated.isSaved ? "💾" : "🗑️"} ${item.title}');
       await loadContent();
     } catch (e) {
       _logger.log('❌ Ошибка сохранения: $e', isError: true);
@@ -121,13 +116,13 @@ class ContentProvider with ChangeNotifier {
   void markAsShown(String id) {
     _shownIds.add(id);
     _db.markAsShown(id);
-    _logger.log('👁️ Отмечено как просмотренное: $id');
+    _logger.log('👁️ Просмотрено: $id');
   }
 
   Future<void> clearAllContent() async {
     await _db.clearAllContent();
     _shownIds.clear();
     await loadContent();
-    _logger.log('🗑️ Весь контент очищен');
+    _logger.log('🗑️ Контент очищен');
   }
 }
