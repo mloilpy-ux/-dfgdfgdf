@@ -46,26 +46,21 @@ class ContentProvider with ChangeNotifier {
       for (var source in activeSources) {
         try {
           _logger.log('🔍 Парсинг: ${source.name}');
-          
+
           List<ContentItem> newItems = [];
-          
+
           switch (source.type) {
-  case SourceType.reddit:
-    newItems = await _redditParser.parseSubreddit(source.url, source.id);
-    break;
+            case SourceType.reddit:
+              newItems = await _redditParser.parseSubreddit(source.url, source.id);
+              break;
 
-  case SourceType.telegram:
-    newItems = await _scraper.parseTelegram(source.url, source.id);
-    break;
-
-  case SourceType.twitter:
-    // Twitter временно отключён (Nitter умер)
-    _logger.log('⚠️ Twitter отключён');
-    newItems = [];
-    break;
-}
             case SourceType.telegram:
               newItems = await _scraper.parseTelegram(source.url, source.id);
+              break;
+
+            case SourceType.twitter:
+              _logger.log('⚠️ Twitter отключён (Nitter не работает)');
+              newItems = [];
               break;
           }
 
@@ -73,7 +68,7 @@ class ContentProvider with ChangeNotifier {
           for (var item in newItems) {
             final wasShown = await _db.wasShown(item.id);
             final exists = await _db.contentExists(item.id);
-            
+
             if (!wasShown && !exists) {
               await _db.insertContent(item);
               addedCount++;
@@ -83,7 +78,7 @@ class ContentProvider with ChangeNotifier {
           totalAdded += addedCount;
           _logger.log('✅ ${source.name}: +$addedCount новых');
           await sourcesProvider.updateSourceParsedCount(source.id);
-          
+
         } catch (e) {
           _logger.log('❌ ${source.name}: $e', isError: true);
         }
@@ -91,7 +86,7 @@ class ContentProvider with ChangeNotifier {
 
       _logger.log('🎉 Парсинг завершен! Добавлено: $totalAdded');
       await loadContent();
-      
+
     } catch (e) {
       _logger.log('❌ Критическая ошибка: $e', isError: true);
     } finally {
