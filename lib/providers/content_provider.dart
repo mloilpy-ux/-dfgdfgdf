@@ -50,17 +50,20 @@ class ContentProvider with ChangeNotifier {
           List<ContentItem> newItems = [];
           
           switch (source.type) {
-            case SourceType.reddit:
-              newItems = await _redditParser.parseSubreddit(source.url, source.id);
-              break;
-              
-            case SourceType.twitter:
-              final username = _extractTwitterUsername(source.url);
-              if (username != null) {
-                newItems = await _scraper.parseTwitter(username, source.id);
-              }
-              break;
-              
+  case SourceType.reddit:
+    newItems = await _redditParser.parseSubreddit(source.url, source.id);
+    break;
+
+  case SourceType.telegram:
+    newItems = await _scraper.parseTelegram(source.url, source.id);
+    break;
+
+  case SourceType.twitter:
+    // Twitter временно отключён (Nitter умер)
+    _logger.log('⚠️ Twitter отключён');
+    newItems = [];
+    break;
+}
             case SourceType.telegram:
               newItems = await _scraper.parseTelegram(source.url, source.id);
               break;
