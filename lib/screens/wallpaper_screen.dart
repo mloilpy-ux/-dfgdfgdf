@@ -220,21 +220,31 @@ Future<void> _loadContent() async {
             return const Center(child: FurryLoadingIndicator());
           }
 
-          if (items.isEmpty) {
-            return Center(
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  const Icon(Icons.wallpaper, size: 80, color: Colors.grey),
-                  const SizedBox(height: 24),
-                  IconButton(
-                    icon: const Icon(Icons.refresh, size: 40, color: Colors.deepOrange),
-                    onPressed: _loadContent,
-                  ),
-                ],
-              ),
-            );
-          }
+      if (items.isEmpty) {
+  return Center(
+    child: Column(
+      mainAxisAlignment: MainAxisAlignment.center,
+      children: [
+        const Icon(Icons.wallpaper, size: 80, color: Colors.grey),
+        const SizedBox(height: 16),
+        const Text(
+          'Нет контента',
+          style: TextStyle(color: Colors.white, fontSize: 18),
+        ),
+        const SizedBox(height: 8),
+        const Text(
+          'Попробуйте обновить или добавьте источники',
+          style: TextStyle(color: Colors.grey),
+        ),
+        const SizedBox(height: 24),
+        IconButton(
+          icon: const Icon(Icons.refresh, size: 40, color: Colors.deepOrange),
+          onPressed: _loadContent,
+        ),
+      ],
+    ),
+  );
+}
 
           final currentItem = items[_currentIndex];
 
