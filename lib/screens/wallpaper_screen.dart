@@ -220,32 +220,38 @@ Future<void> _loadContent() async {
             return const Center(child: FurryLoadingIndicator());
           }
 
-      if (items.isEmpty) {
+if (items.isEmpty) {
   return Center(
     child: Column(
       mainAxisAlignment: MainAxisAlignment.center,
       children: [
-        const Icon(Icons.wallpaper, size: 80, color: Colors.grey),
-        const SizedBox(height: 16),
+        const Icon(Icons.wallpaper_outlined, size: 90, color: Colors.grey),
+        const SizedBox(height: 20),
         const Text(
           'Нет контента',
-          style: TextStyle(color: Colors.white, fontSize: 18),
+          style: TextStyle(color: Colors.white, fontSize: 22, fontWeight: FontWeight.bold),
         ),
         const SizedBox(height: 8),
         const Text(
-          'Попробуйте обновить или добавьте источники',
-          style: TextStyle(color: Colors.grey),
+          'Нажмите кнопку ниже, чтобы загрузить обои',
+          style: TextStyle(color: Colors.grey, fontSize: 16),
         ),
-        const SizedBox(height: 24),
-        IconButton(
-          icon: const Icon(Icons.refresh, size: 40, color: Colors.deepOrange),
+        const SizedBox(height: 32),
+        ElevatedButton.icon(
           onPressed: _loadContent,
+          icon: const Icon(Icons.refresh),
+          label: const Text('Обновить источники'),
+          style: ElevatedButton.styleFrom(
+            backgroundColor: Colors.deepOrange,
+            foregroundColor: Colors.white,
+            padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 16),
+            textStyle: const TextStyle(fontSize: 18),
+          ),
         ),
       ],
     ),
   );
 }
-
           final currentItem = items[_currentIndex];
 
           return GestureDetector(
