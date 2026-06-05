@@ -8,19 +8,29 @@ class RedditParser {
 
   Future<List<ContentItem>> parseSubreddit(String subredditUrl, String sourceId) async {
     try {
-      final url = subredditUrl.endsWith('/') 
-          ? '${subredditUrl}hot.json?limit=50' 
+      final url = subredditUrl.endsWith('/')
+          ? '${subredditUrl}hot.json?limit=50'
           : '$subredditUrl/hot.json?limit=50';
-      
+
       _logger.log('📡 Reddit запрос: $url');
-      
+
       final response = await http.get(
         Uri.parse(url),
-        headers: {'User-Agent': 'FurryContentHub/1.0'},
-      );
+        headers: {
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+          'Accept': 'application/json',
+          'Accept-Language': 'en-US,en;q=0.9',
+        },
+      ).timeout(const Duration(seconds: 25));
+
+      if (response.statusCode == 429) {
+        _logger.log('⚠️ Reddit: Слишком много запросов (429)', isError: true);
+        return [];
+      }
 
       if (response.statusCode != 200) {
-        throw Exception('HTTP ${response.statusCode}');
+        _logger.log('❌ Reddit HTTP ${response.statusCode}', isError: true);
+        return [];
       }
 
       final json = jsonDecode(response.body);
@@ -38,7 +48,7 @@ class RedditParser {
             mediaUrl = data['media']?['reddit_video']?['fallback_url'];
           } else if (data['url'] != null) {
             mediaUrl = data['url'] as String;
-            if (mediaUrl.endsWith('.gif') || mediaUrl.endsWith('.gifv')) {
+            if (mediaUrl!.endsWith('.gif') || mediaUrl.endsWith('.gifv')) {
               isGif = true;
             }
           }
