@@ -11,42 +11,41 @@ class WebScraperService {
 
   // ==================== TELEGRAM WEB ====================
   
-  Future<List<ContentItem>> parseTelegram(String channelUrl, String sourceId) async {
-    _logger.log('✈️ Парсинг Telegram Web: $channelUrl');
-    
-    final channelName = _extractTelegramChannelName(channelUrl);
-    if (channelName == null) {
-      _logger.log('❌ Неверный URL Telegram', isError: true);
-      return [];
-    }
+Future<List<ContentItem>> parseTelegram(String channelUrl, String sourceId) async {
+  _logger.log('✈️ Парсинг Telegram Web: $channelUrl');
 
-    try {
-      final url = 'https://t.me/s/$channelName';
-      _logger.log('📡 Запрос: $url');
-      
-      final response = await http.get(
-        Uri.parse(url),
-        headers: {
-          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-          'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
-          'Accept-Language': 'en-US,en;q=0.5',
-        },
-      ).timeout(const Duration(seconds: 20));
-
-      if (response.statusCode != 200) {
-        _logger.log('❌ HTTP ${response.statusCode}', isError: true);
-        return [];
-      }
-
-      final items = _parseTelegramHTML(response.body, channelName, sourceId, channelUrl);
-      _logger.log('✅ Telegram: найдено ${items.length} элементов');
-      return items;
-      
-    } catch (e) {
-      _logger.log('❌ Ошибка Telegram: $e', isError: true);
-      return [];
-    }
+  final channelName = _extractTelegramChannelName(channelUrl);
+  if (channelName == null) {
+    _logger.log('❌ Неверный URL Telegram', isError: true);
+    return [];
   }
+
+  try {
+    final url = 'https://t.me/s/$channelName';
+
+    final response = await http.get(
+      Uri.parse(url),
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+        'Accept-Language': 'ru-RU,ru;q=0.9,en-US;q=0.8,en;q=0.7',
+      },
+    ).timeout(const Duration(seconds: 25));
+
+    if (response.statusCode != 200) {
+      _logger.log('❌ Telegram HTTP ${response.statusCode}', isError: true);
+      return [];
+    }
+
+    final items = _parseTelegramHTML(response.body, channelName, sourceId, channelUrl);
+    _logger.log('✅ Telegram: найдено ${items.length} элементов');
+    return items;
+
+  } catch (e) {
+    _logger.log('❌ Ошибка Telegram: $e', isError: true);
+    return [];
+  }
+}
 
   List<ContentItem> _parseTelegramHTML(String html, String channelName, String sourceId, String originalUrl) {
     final document = html_parser.parse(html);
