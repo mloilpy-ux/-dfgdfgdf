@@ -39,17 +39,21 @@ class _WallpaperScreenState extends State<WallpaperScreen> {
     });
   }
 
-  Future<void> _loadContent() async {
-    final contentProvider = context.read<ContentProvider>();
-    final sourcesProvider = context.read<SourcesProvider>();
-    
-    await contentProvider.loadContent();
-    
-    if (contentProvider.items.isEmpty) {
+Future<void> _loadContent() async {
+  final contentProvider = context.read<ContentProvider>();
+  final sourcesProvider = context.read<SourcesProvider>();
+
+  await contentProvider.loadContent();
+
+  // Если база пустая — пытаемся спарсить, но не падаем при ошибке
+  if (contentProvider.items.isEmpty) {
+    try {
       await contentProvider.parseAllActiveSources(sourcesProvider);
+    } catch (e) {
+      debugPrint('Ошибка парсинга при старте: $e');
     }
   }
-
+}
   void _nextImage() {
     HapticFeedback.selectionClick();
     
