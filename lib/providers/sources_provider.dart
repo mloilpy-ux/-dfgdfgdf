@@ -11,32 +11,40 @@ class SourcesProvider with ChangeNotifier {
   bool _isLoading = false;
 
   List<ContentSource> get sources => _sources;
-  List<ContentSource> get activeSources => _sources.where((s) => s.isActive).toList();
+  List<ContentSource> get activeSources =>
+      _sources.where((s) => s.isActive).toList();
   bool get isLoading => _isLoading;
 
   SourcesProvider() {
-    loadSources();
+    // БАГ #1 ИСПРАВЛЕН: откладываем до следующего микротаска —
+    // виджеты успевают подписаться до первого notifyListeners()
+    Future.microtask(() => loadSources());
   }
 
   Future<void> loadSources() async {
     _isLoading = true;
     notifyListeners();
 
-    _logger.log('🔄 Загрузка источников...');
-    _sources = await _db.getSources();
-    
-    if (_sources.isEmpty) {
-      _logger.log('📌 Инициализация источников по умолчанию');
-      final defaults = ContentSource.getDefaultSources();
-      for (var source in defaults) {
-        await _db.insertSource(source);
-      }
+    try {
+      _logger.log('🔄 Загрузка источников...');
       _sources = await _db.getSources();
-    }
 
-    _logger.log('✅ Загружено ${_sources.length} источников');
-    _isLoading = false;
-    notifyListeners();
+      if (_sources.isEmpty) {
+        _logger.log('📌 Инициализация источников по умолчанию');
+        final defaults = ContentSource.getDefaultSources();
+        for (var source in defaults) {
+          await _db.insertSource(source);
+        }
+        _sources = await _db.getSources();
+      }
+
+      _logger.log('✅ Загружено ${_sources.length} источников');
+    } catch (e) {
+      _logger.log('❌ Ошибка загрузки источников: $e', isError: true);
+    } finally {
+      _isLoading = false;
+      notifyListeners();
+    }
   }
 
   Future<void> addSource(String url) async {
@@ -44,7 +52,11 @@ class SourcesProvider with ChangeNotifier {
       _logger.log('➕ Добавление источника: $url');
       final source = ContentSource.fromUrl(url);
       await _db.insertSource(source);
-      await loadSources();
+
+      // БАГ #3 ИСПРАВЛЕН: обновляем локальный список напрямую
+      _sources = [..._sources, source];
+      notifyListeners();
+
       _logger.log('✅ Источник добавлен: ${source.name}');
     } catch (e) {
       _logger.log('❌ Ошибка добавления источника: $e', isError: true);
@@ -56,8 +68,13 @@ class SourcesProvider with ChangeNotifier {
     try {
       final updated = source.copyWith(isActive: !source.isActive);
       await _db.updateSource(updated);
-      await loadSources();
-      _logger.log('🔄 Источник ${updated.name} ${updated.isActive ? "активирован" : "деактивирован"}');
+
+      // БАГ #3 ИСПРАВЛЕН: заменяем только один элемент в памяти
+      _sources = _sources.map((s) => s.id == source.id ? updated : s).toList();
+      notifyListeners();
+
+      _logger.log('🔄 ${updated.name} '
+          '${updated.isActive ? "активирован" : "деактивирован"}');
     } catch (e) {
       _logger.log('❌ Ошибка переключения источника: $e', isError: true);
     }
@@ -67,8 +84,12 @@ class SourcesProvider with ChangeNotifier {
     try {
       _logger.log('🗑️ Удаление источника: $id');
       await _db.deleteSource(id);
-      await loadSources();
-      _logger.log('✅ Источник удален');
+
+      // БАГ #3 ИСПРАВЛЕН: удаляем только из локального списка
+      _sources = _sources.where((s) => s.id != id).toList();
+      notifyListeners();
+
+      _logger.log('✅ Источник удалён');
     } catch (e) {
       _logger.log('❌ Ошибка удаления источника: $e', isError: true);
     }
@@ -76,13 +97,23 @@ class SourcesProvider with ChangeNotifier {
 
   Future<void> updateSourceParsedCount(String id) async {
     try {
-      final source = _sources.firstWhere((s) => s.id == id);
-      final updated = source.copyWith(
+      // БАГ #2 ИСПРАВЛЕН: orElse вместо краша StateError
+      final index = _sources.indexWhere((s) => s.id == id);
+      if (index == -1) {
+        _logger.log('⚠️ Источник $id не найден для обновления статистики');
+        return;
+      }
+
+      final updated = _sources[index].copyWith(
         lastParsed: DateTime.now(),
-        parsedCount: source.parsedCount + 1,
+        parsedCount: _sources[index].parsedCount + 1,
       );
       await _db.updateSource(updated);
-      await loadSources();
+
+      // БАГ #3 ИСПРАВЛЕН: обновляем только один элемент
+      _sources = [..._sources];
+      _sources[index] = updated;
+      notifyListeners();
     } catch (e) {
       _logger.log('❌ Ошибка обновления статистики: $e', isError: true);
     }
