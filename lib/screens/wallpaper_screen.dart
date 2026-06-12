@@ -20,7 +20,6 @@ import 'package:url_launcher/url_launcher.dart';
 
 class WallpaperScreen extends StatefulWidget {
   const WallpaperScreen({super.key});
-
   @override
   State<WallpaperScreen> createState() => _WallpaperScreenState();
 }
@@ -34,170 +33,152 @@ class _WallpaperScreenState extends State<WallpaperScreen> {
   @override
   void initState() {
     super.initState();
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      _loadContent();
-    });
+    WidgetsBinding.instance.addPostFrameCallback((_) => _loadContent());
   }
 
-Future<void> _loadContent() async {
-  final contentProvider = context.read<ContentProvider>();
-  final sourcesProvider = context.read<SourcesProvider>();
+  Future<void> _loadContent() async {
+    final contentProvider = context.read<ContentProvider>();
+    final sourcesProvider = context.read<SourcesProvider>();
 
-  await contentProvider.loadContent();
+    // БАГ #3 ИСПРАВЛЕН: сброс индекса и истории перед загрузкой
+    setState(() {
+      _currentIndex = 0;
+      _history.clear();
+      _errorUrls.clear();
+    });
 
-  // Если база пустая — пытаемся спарсить, но не падаем при ошибке
-  if (contentProvider.items.isEmpty) {
-    try {
-      await contentProvider.parseAllActiveSources(sourcesProvider);
-    } catch (e) {
-      debugPrint('Ошибка парсинга при старте: $e');
+    await contentProvider.loadContent();
+
+    if (contentProvider.items.isEmpty) {
+      try {
+        await contentProvider.parseAllActiveSources(sourcesProvider);
+      } catch (e) {
+        debugPrint('Ошибка парсинга при старте: $e');
+      }
     }
   }
-}
+
   void _nextImage() {
     HapticFeedback.selectionClick();
-    
     final items = _getFilteredItems();
     if (items.isEmpty) return;
 
-    _history.add(_currentIndex);
-    
-    final contentProvider = context.read<ContentProvider>();
-    contentProvider.markAsShown(items[_currentIndex].id);
-
-    setState(() {
-      _currentIndex = (_currentIndex + 1) % items.length;
-    });
+    // БАГ #1 ИСПРАВЛЕН: clamp защищает от RangeError
+    final safeIndex = _currentIndex.clamp(0, items.length - 1);
+    _history.add(safeIndex);
+    context.read<ContentProvider>().markAsShown(items[safeIndex].id);
+    setState(() => _currentIndex = (safeIndex + 1) % items.length);
   }
 
   void _previousImage() {
     if (_history.isEmpty) return;
-    setState(() {
-      _currentIndex = _history.removeLast();
-    });
+    setState(() => _currentIndex = _history.removeLast());
   }
 
   List<ContentItem> _getFilteredItems() {
     final contentProvider = context.read<ContentProvider>();
     final settings = context.read<SettingsProvider>();
-    
     var items = contentProvider.items;
-    
-    if (!settings.showNsfw) {
-      items = items.where((item) => !item.isNsfw).toList();
-    }
-    
-    items = items.where((item) => !item.isGif).toList();
-    items = items.where((item) => !_errorUrls.contains(item.mediaUrl)).toList();
-    
+    if (!settings.showNsfw) items = items.where((i) => !i.isNsfw).toList();
+    items = items.where((i) => !i.isGif).toList();
+    items = items.where((i) => !_errorUrls.contains(i.mediaUrl)).toList();
     return items;
+  }
+
+  // БАГ #1 ИСПРАВЛЕН: безопасный геттер текущего элемента
+  ContentItem? _getCurrentItem(List<ContentItem> items) {
+    if (items.isEmpty) return null;
+    return items[_currentIndex.clamp(0, items.length - 1)];
   }
 
   Future<void> _downloadImage(ContentItem item) async {
     HapticFeedback.mediumImpact();
     setState(() => _isDownloading = true);
-    
     try {
       final response = await http.get(Uri.parse(item.mediaUrl));
-      final dir = await getExternalStorageDirectory();
+      // БАГ #4 ИСПРАВЛЕН: fallback на внутреннее хранилище если внешнее недоступно
+      final dir = await getExternalStorageDirectory()
+          ?? await getApplicationDocumentsDirectory();
       final fileName = 'furry_${DateTime.now().millisecondsSinceEpoch}.jpg';
-      final file = File('${dir!.path}/$fileName');
-      await file.writeAsBytes(response.bodyBytes);
-      
+      await File('${dir.path}/$fileName').writeAsBytes(response.bodyBytes);
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('💾 $fileName'),
-            duration: const Duration(seconds: 1),
-            backgroundColor: Colors.green,
-          ),
-        );
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+          content: Text('💾 $fileName'),
+          duration: const Duration(seconds: 1),
+          backgroundColor: Colors.green,
+        ));
       }
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('❌'),
-            duration: Duration(seconds: 1),
-            backgroundColor: Colors.red,
-          ),
-        );
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+          content: Text('❌ Ошибка скачивания'),
+          duration: Duration(seconds: 1),
+          backgroundColor: Colors.red,
+        ));
       }
     } finally {
-      setState(() => _isDownloading = false);
+      if (mounted) setState(() => _isDownloading = false);
     }
   }
 
   Future<void> _saveToFavorites(ContentItem item) async {
     HapticFeedback.lightImpact();
-    
-    final contentProvider = context.read<ContentProvider>();
-    await contentProvider.toggleSave(item);
-    
+    await context.read<ContentProvider>().toggleSave(item);
     if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(item.isSaved ? '💜' : '💔'),
-          duration: const Duration(milliseconds: 500),
-          backgroundColor: item.isSaved ? Colors.pink : Colors.grey,
-        ),
-      );
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+        content: Text(item.isSaved ? '💜' : '💔'),
+        duration: const Duration(milliseconds: 500),
+        backgroundColor: item.isSaved ? Colors.pink : Colors.grey,
+      ));
     }
   }
 
   Future<void> _setWallpaper(ContentItem item) async {
     HapticFeedback.heavyImpact();
-    
     showDialog(
       context: context,
       barrierDismissible: false,
-      builder: (context) => const Center(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            CircularProgressIndicator(color: Colors.purple),
-            SizedBox(height: 16),
-            Text('Установка обоев... 🐾', style: TextStyle(color: Colors.white, fontSize: 16)),
-          ],
-        ),
+      builder: (_) => const Center(
+        child: Column(mainAxisSize: MainAxisSize.min, children: [
+          CircularProgressIndicator(color: Colors.purple),
+          SizedBox(height: 16),
+          Text('Установка обоев... 🐾',
+              style: TextStyle(color: Colors.white, fontSize: 16)),
+        ]),
       ),
     );
-
     try {
       final success = await WallpaperService.setWallpaper(item.mediaUrl);
-      
       if (mounted) {
         Navigator.pop(context);
-        
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(success ? '🖼️ Обои установлены!' : '❌ Ошибка'),
-            duration: const Duration(seconds: 2),
-            backgroundColor: success ? Colors.green : Colors.red,
-          ),
-        );
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+          content: Text(success ? '🖼️ Обои установлены!' : '❌ Ошибка'),
+          duration: const Duration(seconds: 2),
+          backgroundColor: success ? Colors.green : Colors.red,
+        ));
       }
     } catch (e) {
       if (mounted) {
         Navigator.pop(context);
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('❌ Ошибка установки'),
-            duration: Duration(seconds: 2),
-            backgroundColor: Colors.red,
-          ),
-        );
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+          content: Text('❌ Ошибка установки'),
+          duration: Duration(seconds: 2),
+          backgroundColor: Colors.red,
+        ));
       }
     }
   }
 
   void _handleError(String url) {
-    setState(() {
-      _errorUrls.add(url);
-    });
-    
-    Future.delayed(const Duration(milliseconds: 300), () {
-      if (mounted) _nextImage();
+    // БАГ #2 ИСПРАВЛЕН: нельзя setState во время build (errorWidget вызывается в build).
+    // Future.microtask выходит из фазы build перед изменением состояния.
+    // БАГ #5 ИСПРАВЛЕН: mounted-проверка перед delayed-вызовом
+    Future.microtask(() {
+      if (!mounted) return;
+      setState(() => _errorUrls.add(url));
+      Future.delayed(const Duration(milliseconds: 300), () {
+        if (mounted) _nextImage();
+      });
     });
   }
 
@@ -220,54 +201,48 @@ Future<void> _loadContent() async {
             return const Center(child: FurryLoadingIndicator());
           }
 
-if (items.isEmpty) {
-  return Center(
-    child: Column(
-      mainAxisAlignment: MainAxisAlignment.center,
-      children: [
-        const Icon(Icons.wallpaper_outlined, size: 90, color: Colors.grey),
-        const SizedBox(height: 20),
-        const Text(
-          'Нет контента',
-          style: TextStyle(color: Colors.white, fontSize: 22, fontWeight: FontWeight.bold),
-        ),
-        const SizedBox(height: 8),
-        const Text(
-          'Нажмите кнопку ниже, чтобы загрузить обои',
-          style: TextStyle(color: Colors.grey, fontSize: 16),
-        ),
-        const SizedBox(height: 32),
-        ElevatedButton.icon(
-          onPressed: _loadContent,
-          icon: const Icon(Icons.refresh),
-          label: const Text('Обновить источники'),
-          style: ElevatedButton.styleFrom(
-            backgroundColor: Colors.deepOrange,
-            foregroundColor: Colors.white,
-            padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 16),
-            textStyle: const TextStyle(fontSize: 18),
-          ),
-        ),
-      ],
-    ),
-  );
-}
-          final currentItem = items[_currentIndex];
+          if (items.isEmpty) {
+            return Center(
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  const Icon(Icons.wallpaper_outlined, size: 90, color: Colors.grey),
+                  const SizedBox(height: 20),
+                  const Text('Нет контента',
+                      style: TextStyle(color: Colors.white, fontSize: 22, fontWeight: FontWeight.bold)),
+                  const SizedBox(height: 8),
+                  const Text('Нажмите кнопку ниже, чтобы загрузить обои',
+                      style: TextStyle(color: Colors.grey, fontSize: 16)),
+                  const SizedBox(height: 32),
+                  ElevatedButton.icon(
+                    onPressed: _loadContent,
+                    icon: const Icon(Icons.refresh),
+                    label: const Text('Обновить источники'),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: Colors.deepOrange,
+                      foregroundColor: Colors.white,
+                      padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 16),
+                      textStyle: const TextStyle(fontSize: 18),
+                    ),
+                  ),
+                ],
+              ),
+            );
+          }
+
+          // БАГ #1 ИСПРАВЛЕН: безопасный геттер вместо прямого items[_currentIndex]
+          final currentItem = _getCurrentItem(items)!;
 
           return GestureDetector(
             onHorizontalDragEnd: (details) {
-              if (details.primaryVelocity! > 500) {
-                _nextImage();
-              } else if (details.primaryVelocity! < -500) {
-                _previousImage();
-              }
+              final v = details.primaryVelocity ?? 0;
+              if (v > 500) _nextImage();
+              else if (v < -500) _previousImage();
             },
             onVerticalDragEnd: (details) {
-              if (details.primaryVelocity! < -500) {
-                _saveToFavorites(currentItem);
-              } else if (details.primaryVelocity! > 500) {
-                _downloadImage(currentItem);
-              }
+              final v = details.primaryVelocity ?? 0;
+              if (v < -500) _saveToFavorites(currentItem);
+              else if (v > 500) _downloadImage(currentItem);
             },
             child: Stack(
               fit: StackFit.expand,
@@ -279,22 +254,16 @@ if (items.isEmpty) {
                   errorWidget: (_, url, __) {
                     _handleError(url);
                     return const Center(
-                      child: Column(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Icon(Icons.skip_next, size: 64, color: Colors.orange),
-                          SizedBox(height: 8),
-                          Text('Пропуск...', style: TextStyle(color: Colors.white)),
-                        ],
-                      ),
+                      child: Column(mainAxisSize: MainAxisSize.min, children: [
+                        Icon(Icons.skip_next, size: 64, color: Colors.orange),
+                        SizedBox(height: 8),
+                        Text('Пропуск...', style: TextStyle(color: Colors.white)),
+                      ]),
                     );
                   },
                 ),
-                
                 Positioned(
-                  top: 0,
-                  left: 0,
-                  right: 0,
+                  top: 0, left: 0, right: 0,
                   child: Container(
                     padding: EdgeInsets.only(top: MediaQuery.of(context).padding.top),
                     decoration: BoxDecoration(
@@ -307,95 +276,51 @@ if (items.isEmpty) {
                     child: Row(
                       mainAxisAlignment: MainAxisAlignment.spaceBetween,
                       children: [
-                        Row(
-                          children: [
-                            IconButton(
-                              icon: const Icon(Icons.source, color: Colors.white),
+                        Row(children: [
+                          IconButton(icon: const Icon(Icons.source, color: Colors.white),
+                              onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const SourcesScreen()))),
+                          IconButton(icon: const Icon(Icons.gif_box, color: Colors.white),
+                              onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const GifsScreen()))),
+                          IconButton(icon: const Icon(Icons.video_library, color: Colors.white),
+                              onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const VideosScreen()))),
+                        ]),
+                        Row(children: [
+                          IconButton(icon: const Icon(Icons.favorite, color: Colors.pink),
+                              onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const FavoritesScreen()))),
+                          Consumer<SettingsProvider>(
+                            builder: (context, settings, _) => IconButton(
+                              icon: Icon(settings.showNsfw ? Icons.visibility : Icons.visibility_off,
+                                  color: settings.showNsfw ? Colors.red : Colors.grey),
                               onPressed: () {
-                                Navigator.push(context, MaterialPageRoute(builder: (context) => const SourcesScreen()));
+                                settings.toggleNsfw();
+                                setState(() { _currentIndex = 0; _history.clear(); });
                               },
                             ),
-                            IconButton(
-                              icon: const Icon(Icons.gif_box, color: Colors.white),
-                              onPressed: () {
-                                Navigator.push(context, MaterialPageRoute(builder: (context) => const GifsScreen()));
-                              },
-                            ),
-                            IconButton(
-                              icon: const Icon(Icons.video_library, color: Colors.white),
-                              onPressed: () {
-                                Navigator.push(context, MaterialPageRoute(builder: (context) => const VideosScreen()));
-                              },
-                            ),
-                          ],
-                        ),
-                        Row(
-                          children: [
-                            IconButton(
-                              icon: const Icon(Icons.favorite, color: Colors.pink),
-                              onPressed: () {
-                                Navigator.push(context, MaterialPageRoute(builder: (context) => const FavoritesScreen()));
-                              },
-                            ),
-                            Consumer<SettingsProvider>(
-                              builder: (context, settings, _) => IconButton(
-                                icon: Icon(
-                                  settings.showNsfw ? Icons.visibility : Icons.visibility_off,
-                                  color: settings.showNsfw ? Colors.red : Colors.grey,
-                                ),
-                                onPressed: () {
-                                  settings.toggleNsfw();
-                                  setState(() {
-                                    _currentIndex = 0;
-                                    _history.clear();
-                                  });
-                                },
-                              ),
-                            ),
-                            IconButton(
-                              icon: const Icon(Icons.article, color: Colors.amber),
-                              onPressed: () {
-                                Navigator.push(context, MaterialPageRoute(builder: (context) => const LogsScreen()));
-                              },
-                            ),
-                            IconButton(
-                              icon: const Icon(Icons.refresh, color: Colors.white),
-                              onPressed: _loadContent,
-                            ),
-                          ],
-                        ),
+                          ),
+                          IconButton(icon: const Icon(Icons.article, color: Colors.amber),
+                              onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const LogsScreen()))),
+                          IconButton(icon: const Icon(Icons.refresh, color: Colors.white),
+                              onPressed: _loadContent),
+                        ]),
                       ],
                     ),
                   ),
                 ),
-                
                 Positioned(
-                  bottom: 20,
-                  left: 20,
+                  bottom: 20, left: 20,
                   child: GestureDetector(
                     onTap: () async {
-                      if (currentItem.postUrl != null) {
-                        await launchUrl(Uri.parse(currentItem.postUrl!));
-                      }
+                      if (currentItem.postUrl != null) await launchUrl(Uri.parse(currentItem.postUrl!));
                     },
                     child: Container(
                       padding: const EdgeInsets.all(12),
-                      decoration: BoxDecoration(
-                        color: Colors.black.withOpacity(0.7),
-                        shape: BoxShape.circle,
-                      ),
-                      child: Text(
-                        _getSourceIcon(currentItem.sourceId),
-                        style: const TextStyle(fontSize: 24),
-                      ),
+                      decoration: BoxDecoration(color: Colors.black.withOpacity(0.7), shape: BoxShape.circle),
+                      child: Text(_getSourceIcon(currentItem.sourceId), style: const TextStyle(fontSize: 24)),
                     ),
                   ),
                 ),
-                
                 Positioned(
-                  bottom: 20,
-                  left: 0,
-                  right: 0,
+                  bottom: 20, left: 0, right: 0,
                   child: Center(
                     child: GestureDetector(
                       onTap: () => _setWallpaper(currentItem),
@@ -404,37 +329,20 @@ if (items.isEmpty) {
                         decoration: BoxDecoration(
                           color: Colors.purple.withOpacity(0.9),
                           shape: BoxShape.circle,
-                          boxShadow: [
-                            BoxShadow(
-                              color: Colors.purple.withOpacity(0.5),
-                              blurRadius: 20,
-                              spreadRadius: 5,
-                            ),
-                          ],
+                          boxShadow: [BoxShadow(color: Colors.purple.withOpacity(0.5), blurRadius: 20, spreadRadius: 5)],
                         ),
-                        child: const Icon(
-                          Icons.wallpaper,
-                          color: Colors.white,
-                          size: 28,
-                        ),
+                        child: const Icon(Icons.wallpaper, color: Colors.white, size: 28),
                       ),
                     ),
                   ),
                 ),
-                
                 Positioned(
-                  bottom: 20,
-                  right: 20,
+                  bottom: 20, right: 20,
                   child: Container(
                     padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                    decoration: BoxDecoration(
-                      color: Colors.black.withOpacity(0.7),
-                      borderRadius: BorderRadius.circular(20),
-                    ),
-                    child: Text(
-                      '${_currentIndex + 1}/${items.length}',
-                      style: const TextStyle(color: Colors.white, fontSize: 12),
-                    ),
+                    decoration: BoxDecoration(color: Colors.black.withOpacity(0.7), borderRadius: BorderRadius.circular(20)),
+                    child: Text('${_currentIndex + 1}/${items.length}',
+                        style: const TextStyle(color: Colors.white, fontSize: 12)),
                   ),
                 ),
               ],
