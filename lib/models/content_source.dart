@@ -1,3 +1,5 @@
+import 'dart:math';
+
 enum SourceType { reddit, twitter, telegram }
 
 class ContentSource {
@@ -23,8 +25,17 @@ class ContentSource {
     this.parsedCount = 0,
   });
 
-  factory ContentSource.fromUrl(String url) {
-    String id = DateTime.now().millisecondsSinceEpoch.toString();
+  factory ContentSource.fromUrl(String rawUrl) {
+    // БАГ #3 ИСПРАВЛЕН: нормализуем URL — добавляем схему если нет
+    String url = rawUrl.trim();
+    if (!url.startsWith('http://') && !url.startsWith('https://')) {
+      url = 'https://$url';
+    }
+
+    // БАГ #2 ИСПРАВЛЕН: уникальный ID через время + случайное число
+    final id = '${DateTime.now().millisecondsSinceEpoch}_'
+        '${Random().nextInt(99999)}';
+
     String name;
     SourceType type;
 
@@ -41,7 +52,8 @@ class ContentSource {
       final match = RegExp(r't\.me/([^/]+)').firstMatch(url);
       name = match != null ? match.group(1)! : 'Telegram Channel';
     } else {
-      throw Exception('Неподдерживаемый тип источника');
+      throw Exception('Неподдерживаемый тип источника. '
+          'Поддерживаются: reddit.com, t.me');
     }
 
     return ContentSource(
@@ -61,7 +73,7 @@ class ContentSource {
         url: 'https://www.reddit.com/r/furry_irl/',
         type: SourceType.reddit,
         isActive: true,
-        addedAt: DateTime.now(),
+        addedAt: DateTime(2024),
       ),
       ContentSource(
         id: 'default_2',
@@ -69,7 +81,7 @@ class ContentSource {
         url: 'https://www.reddit.com/r/furrymemes/',
         type: SourceType.reddit,
         isActive: true,
-        addedAt: DateTime.now(),
+        addedAt: DateTime(2024),
       ),
       ContentSource(
         id: 'default_3',
@@ -77,7 +89,7 @@ class ContentSource {
         url: 'https://www.reddit.com/r/furry/',
         type: SourceType.reddit,
         isActive: true,
-        addedAt: DateTime.now(),
+        addedAt: DateTime(2024),
       ),
     ];
   }
@@ -101,11 +113,17 @@ class ContentSource {
       id: map['id'] as String,
       name: map['name'] as String,
       url: map['url'] as String,
-      type: SourceType.values.firstWhere((e) => e.name == map['type']),
+      // БАГ #1 ИСПРАВЛЕН: orElse вместо краша на неизвестном типе
+      type: SourceType.values.firstWhere(
+        (e) => e.name == map['type'],
+        orElse: () => SourceType.reddit,
+      ),
       isActive: (map['isActive'] as int) == 1,
       isNsfw: (map['isNsfw'] as int) == 1,
       addedAt: DateTime.parse(map['addedAt'] as String),
-      lastParsed: map['lastParsed'] != null ? DateTime.parse(map['lastParsed'] as String) : null,
+      lastParsed: map['lastParsed'] != null
+          ? DateTime.parse(map['lastParsed'] as String)
+          : null,
       parsedCount: (map['parsedCount'] as int?) ?? 0,
     );
   }
