@@ -9,7 +9,13 @@ class SettingsProvider with ChangeNotifier {
   bool get initialized => _initialized;
 
   SettingsProvider() {
-    _init();
+    // БАГ ИСПРАВЛЕН: асинхронная инициализация через microtask
+    // вместо прямого вызова, чтобы конструктор не был async
+    Future.microtask(() => _init());
+  }
+
+  Future<void> init() async {
+    await _init();
   }
 
   Future<void> _init() async {
@@ -18,11 +24,3 @@ class SettingsProvider with ChangeNotifier {
     _initialized = true;
     notifyListeners();
   }
-
-  Future<void> toggleNsfw() async {
-    _showNsfw = !_showNsfw;
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setBool('showNsfw', _showNsfw);
-    notifyListeners();
-  }
-}
