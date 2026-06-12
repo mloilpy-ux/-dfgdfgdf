@@ -6,7 +6,15 @@ import 'logger_service.dart';
 class RedditParser {
   final LoggerService _logger = LoggerService.instance;
 
-  Future<List<ContentItem>> parseSubreddit(String subredditUrl, String sourceId) async {
+  // БАГ #1 ИСПРАВЛЕН: правильный User-Agent по требованиям Reddit API.
+  // Браузерный Mozilla/5.0 блокируется — Reddit возвращает HTML вместо JSON.
+  static const String _userAgent = 'android:furry_content_hub:1.0.0 (by /u/anonymous)';
+
+  // Thumbnail-значения, которые не являются реальными URL
+  static const _invalidThumbnails = {'self', 'default', 'nsfw', 'spoiler', 'image', ''};
+
+  Future<List<ContentItem>> parseSubreddit(
+      String subredditUrl, String sourceId) async {
     try {
       final url = subredditUrl.endsWith('/')
           ? '${subredditUrl}hot.json?limit=50'
@@ -17,9 +25,9 @@ class RedditParser {
       final response = await http.get(
         Uri.parse(url),
         headers: {
-          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+          // БАГ #1 ИСПРАВЛЕН: используем правильный User-Agent
+          'User-Agent': _userAgent,
           'Accept': 'application/json',
-          'Accept-Language': 'en-US,en;q=0.9',
         },
       ).timeout(const Duration(seconds: 25));
 
@@ -28,33 +36,92 @@ class RedditParser {
         return [];
       }
 
+      if (response.statusCode == 403) {
+        _logger.log('❌ Reddit: Доступ запрещён (403). Проверь URL сабреддита.',
+            isError: true);
+        return [];
+      }
+
       if (response.statusCode != 200) {
         _logger.log('❌ Reddit HTTP ${response.statusCode}', isError: true);
         return [];
       }
 
-      final json = jsonDecode(response.body);
-      final posts = json['data']['children'] as List;
+      // БАГ #2 ИСПРАВЛЕН: проверяем Content-Type до jsonDecode.
+      // Если Reddit вернул HTML (блокировка/редирект) — jsonDecode упадёт с FormatException.
+      final contentType = response.headers['content-type'] ?? '';
+      if (!contentType.contains('application/json') &&
+          !contentType.contains('text/json')) {
+        _logger.log(
+            '❌ Reddit вернул не JSON (Content-Type: $contentType). '
+            'Вероятно, запрос заблокирован.',
+            isError: true);
+        return [];
+      }
+
+      final Map<String, dynamic> json;
+      try {
+        json = jsonDecode(response.body) as Map<String, dynamic>;
+      } catch (e) {
+        _logger.log('❌ Ошибка разбора JSON от Reddit: $e', isError: true);
+        return [];
+      }
+
+      final posts = json['data']?['children'] as List?;
+      if (posts == null) {
+        _logger.log('❌ Неожиданная структура ответа Reddit', isError: true);
+        return [];
+      }
+
       final items = <ContentItem>[];
 
       for (var post in posts) {
         try {
-          final data = post['data'];
+          final data = post['data'] as Map<String, dynamic>?;
+          if (data == null) continue;
+
           String? mediaUrl;
-          String? thumbnailUrl = data['thumbnail'];
+          String? thumbnailUrl = data['thumbnail'] as String?;
           bool isGif = false;
 
           if (data['is_video'] == true) {
-            mediaUrl = data['media']?['reddit_video']?['fallback_url'];
-          } else if (data['url'] != null) {
-            mediaUrl = data['url'] as String;
-            if (mediaUrl!.endsWith('.gif') || mediaUrl.endsWith('.gifv')) {
-              isGif = true;
+            // Видео: берём fallback_url (MP4), не HLS-поток (.m3u8)
+            final fallback =
+                data['media']?['reddit_video']?['fallback_url'] as String?;
+            if (fallback != null && !fallback.contains('.m3u8')) {
+              mediaUrl = fallback;
+            }
+          } else if (data['is_gallery'] == true) {
+            // БАГ #4 ИСПРАВЛЕН: галерейные посты — берём первое изображение
+            final metadata =
+                data['media_metadata'] as Map<String, dynamic>?;
+            if (metadata != null && metadata.isNotEmpty) {
+              final firstItem =
+                  metadata.values.first as Map<String, dynamic>?;
+              final source = firstItem?['s'] as Map<String, dynamic>?;
+              mediaUrl = source?['u'] as String?;
+              // URL в галерее содержит &amp; — декодируем
+              mediaUrl = mediaUrl?.replaceAll('&amp;', '&');
+            }
+          } else {
+            final rawUrl = data['url'] as String?;
+            if (rawUrl != null) {
+              mediaUrl = rawUrl;
+              if (mediaUrl.endsWith('.gif') || mediaUrl.endsWith('.gifv')) {
+                isGif = true;
+              }
             }
           }
 
           if (mediaUrl == null || mediaUrl.isEmpty) continue;
           if (!mediaUrl.startsWith('http')) continue;
+
+          // БАГ #3 ИСПРАВЛЕН: фильтруем все невалидные thumbnail-значения
+          final validThumbnail = (thumbnailUrl != null &&
+                  !_invalidThumbnails.contains(thumbnailUrl) &&
+                  thumbnailUrl.startsWith('http'))
+              ? thumbnailUrl
+              : null;
 
           items.add(ContentItem(
             id: 'reddit_${data['id']}',
@@ -62,7 +129,7 @@ class RedditParser {
             title: (data['title'] as String?) ?? 'No title',
             author: data['author'] as String?,
             mediaUrl: mediaUrl,
-            thumbnailUrl: (thumbnailUrl != 'self' && thumbnailUrl != 'default') ? thumbnailUrl : null,
+            thumbnailUrl: validThumbnail,
             isGif: isGif,
             isNsfw: (data['over_18'] as bool?) ?? false,
             createdAt: DateTime.fromMillisecondsSinceEpoch(
