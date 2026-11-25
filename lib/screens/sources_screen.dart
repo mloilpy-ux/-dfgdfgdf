@@ -4,6 +4,7 @@ import 'package:provider/provider.dart';
 import '../models/content_source.dart';
 import '../providers/content_provider.dart';
 import '../providers/sources_provider.dart';
+import 'browser_source_screen.dart';
 
 class SourcesScreen extends StatelessWidget {
   const SourcesScreen({super.key});
@@ -21,12 +22,11 @@ class SourcesScreen extends StatelessWidget {
     required String title,
     required String label,
     String? hint,
-    bool secret = false,
   }) {
     return showDialog<String>(
       context: context,
       builder: (context) =>
-          _SourceInput(title: title, label: label, hint: hint, secret: secret),
+          _SourceInput(title: title, label: label, hint: hint),
     );
   }
 
@@ -39,8 +39,7 @@ class SourcesScreen extends StatelessWidget {
       context,
       title: 'Добавить источник',
       label: 'Ссылка',
-      hint:
-          't.me/канал, reddit.com/r/сообщество, x.com/профиль или HTTPS-ссылка на медиафайл',
+      hint: 'Telegram, Reddit, X, Pinterest или HTTPS-ссылка на веб-страницу',
     );
     if (url == null || !context.mounted) return;
     try {
@@ -62,33 +61,14 @@ class SourcesScreen extends StatelessWidget {
     SourcesProvider sources,
     ContentProvider content,
   ) async {
-    if (source.type.requiresToken && sources.tokenFor(source.type) == null) {
-      _message(
-        context,
-        'Источник сохранён. Подключите API ${source.type.displayName} для загрузки',
+    if (source.type.opensInBrowser) {
+      await Navigator.of(context).push<void>(
+        MaterialPageRoute(builder: (_) => BrowserSourceScreen(source: source)),
       );
       return;
     }
     final result = await content.importSource(source, sources);
     _message(context, '${source.name}: ${result.message}');
-  }
-
-  Future<void> _connect(
-    BuildContext context,
-    ContentSource source,
-    SourcesProvider sources,
-    ContentProvider content,
-  ) async {
-    final token = await _input(
-      context,
-      title: 'Подключить API ${source.type.displayName}',
-      label: 'Токен доступа',
-      hint: 'Действует до закрытия приложения',
-      secret: true,
-    );
-    if (token == null || !context.mounted) return;
-    sources.setToken(source.type, token);
-    if (source.isActive) await _parse(context, source, sources, content);
   }
 
   Future<void> _toggle(
@@ -103,7 +83,7 @@ class SourcesScreen extends StatelessWidget {
       final enabled = sources.activeSources
           .where((item) => item.id == source.id)
           .firstOrNull;
-      if (context.mounted && enabled != null)
+      if (context.mounted && enabled != null && !enabled.type.opensInBrowser)
         await _parse(context, enabled, sources, content);
     } catch (_) {
       _message(context, 'Не удалось изменить источник');
@@ -156,9 +136,9 @@ class SourcesScreen extends StatelessWidget {
         title: const Text('Источники'),
         actions: [
           IconButton(
-            tooltip: 'Обновить все источники',
+            tooltip: 'Обновить Telegram и медиафайлы',
             icon: const Icon(Icons.refresh),
-            onPressed: content.isLoading || sources.activeSources.isEmpty
+            onPressed: content.isLoading || sources.autoRefreshSources.isEmpty
                 ? null
                 : () async {
                     final report = await content.parseAllActiveSources(sources);
@@ -196,22 +176,23 @@ class SourcesScreen extends StatelessWidget {
                 final source = sources.sources[index];
                 final importing = content.isImporting(source.id);
                 final result = content.resultFor(source.id);
-                final needsToken =
-                    source.type.requiresToken &&
-                    sources.tokenFor(source.type) == null;
+                final browser = source.type.opensInBrowser;
                 final status = importing
                     ? 'Загрузка…'
                     : !source.isActive
                     ? 'Выключен'
                     : result?.message ??
-                          (needsToken
-                              ? 'Требуется токен API ${source.type.displayName}'
+                          (browser
+                              ? 'Импорт через браузер'
                               : 'Обновлений: ${source.parsedCount}');
                 return Card(
                   color: source.isActive
                       ? Colors.grey.shade800
                       : Colors.grey.shade900,
                   child: ListTile(
+                    onTap: browser && source.isActive && !importing
+                        ? () => _parse(context, source, sources, content)
+                        : null,
                     leading: Text(
                       source.type.icon,
                       style: const TextStyle(fontSize: 22),
@@ -261,28 +242,18 @@ class SourcesScreen extends StatelessWidget {
                               sources,
                               content,
                             ),
-                            'token' => _connect(
-                              context,
-                              source,
-                              sources,
-                              content,
-                            ),
                             _ => _delete(context, source, sources, content),
                           },
                           itemBuilder: (_) => [
                             PopupMenuItem(
                               value: 'parse',
-                              enabled:
-                                  source.isActive && !importing && !needsToken,
-                              child: const Text('Обновить источник'),
-                            ),
-                            if (source.type.requiresToken)
-                              PopupMenuItem(
-                                value: 'token',
-                                child: Text(
-                                  'Подключить API ${source.type.displayName}',
-                                ),
+                              enabled: source.isActive && !importing,
+                              child: Text(
+                                browser
+                                    ? 'Открыть в браузере'
+                                    : 'Обновить источник',
                               ),
+                            ),
                             const PopupMenuItem(
                               value: 'delete',
                               child: Text('Удалить'),
@@ -310,12 +281,10 @@ class _SourceInput extends StatefulWidget {
     required this.title,
     required this.label,
     required this.hint,
-    required this.secret,
   });
   final String title;
   final String label;
   final String? hint;
-  final bool secret;
 
   @override
   State<_SourceInput> createState() => _SourceInputState();
@@ -341,12 +310,9 @@ class _SourceInputState extends State<_SourceInput> {
     content: TextField(
       controller: _controller,
       autofocus: true,
-      obscureText: widget.secret,
       autocorrect: false,
       enableSuggestions: false,
-      keyboardType: widget.secret
-          ? TextInputType.visiblePassword
-          : TextInputType.url,
+      keyboardType: TextInputType.url,
       onSubmitted: (_) => _submit(),
       decoration: InputDecoration(
         labelText: widget.label,
@@ -359,10 +325,7 @@ class _SourceInputState extends State<_SourceInput> {
         onPressed: () => Navigator.pop(context),
         child: const Text('Отмена'),
       ),
-      FilledButton(
-        onPressed: _submit,
-        child: Text(widget.secret ? 'Подключить' : 'Добавить'),
-      ),
+      FilledButton(onPressed: _submit, child: const Text('Добавить')),
     ],
   );
 }

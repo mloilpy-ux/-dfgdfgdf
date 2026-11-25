@@ -246,6 +246,10 @@ class _AddSourceScreenState extends State<AddSourceScreen> {
         return 'https://reddit.com/r/furry_irl';
       case SourceType.twitter:
         return 'https://twitter.com/username';
+      case SourceType.pinterest:
+        return 'https://www.pinterest.com/pin/...';
+      case SourceType.web:
+        return 'https://example.org/gallery';
       case SourceType.direct:
         return 'https://example.org/image.jpg';
       case SourceType.telegram:

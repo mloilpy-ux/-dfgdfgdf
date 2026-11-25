@@ -6,10 +6,13 @@ import 'package:path_provider/path_provider.dart';
 class WallpaperService {
   static const platform = MethodChannel('com.furry.wallpaper/set');
 
-  static Future<bool> setWallpaper(String imageUrl) async {
+  static Future<bool> setWallpaper(
+    String imageUrl, {
+    Map<String, String> headers = const {},
+  }) async {
     try {
       // 1. Скачать изображение
-      final response = await http.get(Uri.parse(imageUrl));
+      final response = await http.get(Uri.parse(imageUrl), headers: headers);
       if (response.statusCode != 200) {
         throw Exception('Ошибка загрузки');
       }

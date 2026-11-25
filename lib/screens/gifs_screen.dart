@@ -62,7 +62,10 @@ class _GifsScreenState extends State<GifsScreen> {
     setState(() => _isDownloading = true);
 
     try {
-      final response = await http.get(Uri.parse(item.mediaUrl));
+      final response = await http.get(
+        Uri.parse(item.mediaUrl),
+        headers: item.mediaHeaders,
+      );
       if (response.statusCode != 200 || response.bodyBytes.isEmpty) {
         throw const HttpException('GIF unavailable');
       }
@@ -138,7 +141,10 @@ class _GifsScreenState extends State<GifsScreen> {
     );
 
     try {
-      final success = await WallpaperService.setWallpaper(item.mediaUrl);
+      final success = await WallpaperService.setWallpaper(
+        item.mediaUrl,
+        headers: item.mediaHeaders,
+      );
 
       if (mounted) {
         Navigator.pop(context);
@@ -230,10 +236,12 @@ class _GifsScreenState extends State<GifsScreen> {
                     key: ValueKey(currentItem.mediaUrl),
                     muted: true,
                     url: currentItem.mediaUrl,
+                    headers: currentItem.mediaHeaders,
                   )
                 else
                   CachedNetworkImage(
                     imageUrl: currentItem.mediaUrl,
+                    httpHeaders: currentItem.mediaHeaders,
                     fit: BoxFit.contain,
                     placeholder: (_, __) =>
                         const Center(child: FurryLoadingIndicator()),

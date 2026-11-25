@@ -65,7 +65,7 @@ class _WallpaperScreenState extends State<WallpaperScreen> {
     try {
       final results = await content.parseAllActiveSources(sources);
       if (results.isEmpty) {
-        _showMessage('Добавьте или включите источник');
+        _showMessage('Откройте веб-источник или добавьте канал Telegram');
       } else if (results.values.every((result) => result.failed)) {
         _showMessage(
           'Не удалось обновить источники. Подробности в разделе «Источники»',
@@ -95,7 +95,7 @@ class _WallpaperScreenState extends State<WallpaperScreen> {
     setState(() => _downloading = true);
     try {
       final response = await http
-          .get(Uri.parse(item.mediaUrl))
+          .get(Uri.parse(item.mediaUrl), headers: item.mediaHeaders)
           .timeout(const Duration(seconds: 30));
       if (response.statusCode != 200 || response.bodyBytes.isEmpty) {
         throw const HttpException('Image unavailable');
@@ -142,7 +142,10 @@ class _WallpaperScreenState extends State<WallpaperScreen> {
     if (_settingWallpaper) return;
     setState(() => _settingWallpaper = true);
     try {
-      final installed = await WallpaperService.setWallpaper(item.mediaUrl);
+      final installed = await WallpaperService.setWallpaper(
+        item.mediaUrl,
+        headers: item.mediaHeaders,
+      );
       _showMessage(
         installed ? 'Главный экран обновлён' : 'Не удалось установить обои',
       );
@@ -362,6 +365,7 @@ class _WallpaperScreenState extends State<WallpaperScreen> {
                         CachedNetworkImage(
                           key: ValueKey(item.mediaUrl),
                           imageUrl: item.mediaUrl,
+                          httpHeaders: item.mediaHeaders,
                           fit: BoxFit.contain,
                           placeholder: (_, _) =>
                               const Center(child: CircularProgressIndicator()),

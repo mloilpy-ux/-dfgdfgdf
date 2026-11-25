@@ -55,7 +55,10 @@ class _VideosScreenState extends State<VideosScreen> {
     setState(() => _isDownloading = true);
 
     try {
-      final response = await http.get(Uri.parse(item.mediaUrl));
+      final response = await http.get(
+        Uri.parse(item.mediaUrl),
+        headers: item.mediaHeaders,
+      );
       final dir = await getExternalStorageDirectory();
       final fileName =
           'furry_video_${DateTime.now().millisecondsSinceEpoch}.mp4';
@@ -166,6 +169,7 @@ class _VideosScreenState extends State<VideosScreen> {
                 MediaVideoPreview(
                   key: ValueKey(currentItem.mediaUrl),
                   url: currentItem.mediaUrl,
+                  headers: currentItem.mediaHeaders,
                 ),
                 Positioned(
                   top: 0,

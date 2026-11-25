@@ -22,7 +22,7 @@ android {
 
     defaultConfig {
         applicationId = if (parallelInstall) {
-            "com.example.furry_content_hub.preview"
+            "com.example.furry_content_hub.preview.v${flutter.versionCode}"
         } else {
             "com.example.furry_content_hub"
         }

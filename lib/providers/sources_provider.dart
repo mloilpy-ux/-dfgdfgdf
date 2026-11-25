@@ -10,7 +10,6 @@ class SourcesProvider with ChangeNotifier {
   List<ContentSource> _sources = [];
   Future<void>? _loading;
   String? _loadError;
-  final Map<SourceType, String> _tokens = {};
 
   SourcesProvider({DatabaseService? database})
     : _db = database ?? DatabaseService.instance;
@@ -18,6 +17,8 @@ class SourcesProvider with ChangeNotifier {
   List<ContentSource> get sources => List.unmodifiable(_sources);
   List<ContentSource> get activeSources =>
       _sources.where((source) => source.isActive).toList();
+  Iterable<ContentSource> get autoRefreshSources =>
+      activeSources.where((source) => !source.type.opensInBrowser);
   bool get isLoading => _loading != null;
   String? get loadError => _loadError;
 
@@ -43,18 +44,6 @@ class SourcesProvider with ChangeNotifier {
 
   Future<void> _reload() async {
     _sources = await _db.getSources();
-  }
-
-  String? tokenFor(SourceType type) => _tokens[type];
-
-  void setToken(SourceType type, String value) {
-    final token = value.trim();
-    if (token.isEmpty) {
-      _tokens.remove(type);
-    } else {
-      _tokens[type] = token;
-    }
-    notifyListeners();
   }
 
   Future<ContentSource> addSource(String url) =>

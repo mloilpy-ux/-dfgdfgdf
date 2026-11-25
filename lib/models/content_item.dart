@@ -47,6 +47,14 @@ class ContentItem {
   bool get usesVideoPlayer =>
       isVideo || (isGif && MediaKind.fromUrl(mediaUrl) == MediaKind.video);
 
+  Map<String, String> get mediaHeaders {
+    if (!id.startsWith('web_') || postUrl == null) return const {};
+    final page = Uri.tryParse(postUrl!);
+    if (page == null || page.scheme != 'https' || page.host.isEmpty)
+      return const {};
+    return {'Referer': '${page.origin}/'};
+  }
+
   Map<String, dynamic> toMap() => {
     'id': id,
     'sourceId': sourceId,

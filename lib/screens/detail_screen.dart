@@ -45,11 +45,16 @@ class DetailScreen extends StatelessWidget {
               SizedBox(
                 height: 300,
                 width: double.infinity,
-                child: MediaVideoPreview(url: item.mediaUrl, muted: item.isGif),
+                child: MediaVideoPreview(
+                  url: item.mediaUrl,
+                  muted: item.isGif,
+                  headers: item.mediaHeaders,
+                ),
               )
             else
               CachedNetworkImage(
                 imageUrl: item.mediaUrl,
+                httpHeaders: item.mediaHeaders,
                 fit: BoxFit.contain,
                 width: double.infinity,
                 placeholder: (_, __) => const Center(

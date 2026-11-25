@@ -4,10 +4,16 @@ import 'package:video_player/video_player.dart';
 import 'furry_loading.dart';
 
 class MediaVideoPreview extends StatefulWidget {
-  const MediaVideoPreview({super.key, required this.url, this.muted = false});
+  const MediaVideoPreview({
+    super.key,
+    required this.url,
+    this.muted = false,
+    this.headers = const {},
+  });
 
   final String url;
   final bool muted;
+  final Map<String, String> headers;
 
   @override
   State<MediaVideoPreview> createState() => MediaVideoPreviewState();
@@ -18,7 +24,10 @@ class MediaVideoPreviewState extends State<MediaVideoPreview> {
   late final Future<void> _ready = _initialize();
 
   Future<void> _initialize() async {
-    final player = VideoPlayerController.networkUrl(Uri.parse(widget.url));
+    final player = VideoPlayerController.networkUrl(
+      Uri.parse(widget.url),
+      httpHeaders: widget.headers,
+    );
     _player = player;
     await player.initialize();
     if (!mounted) return;

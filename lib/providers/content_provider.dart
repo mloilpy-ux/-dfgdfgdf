@@ -7,10 +7,8 @@ import '../models/content_item.dart';
 import '../models/content_source.dart';
 import '../services/database_service.dart';
 import '../services/logger_service.dart';
-import '../services/reddit_parser.dart';
 import '../services/source_response.dart';
 import '../services/web_scraper_service.dart';
-import '../services/x_parser.dart';
 import 'sources_provider.dart';
 
 class SourceImport {
@@ -85,7 +83,7 @@ class ContentProvider with ChangeNotifier {
     notifyListeners();
     try {
       final report = <String, SourceImport>{};
-      for (final source in sources.activeSources) {
+      for (final source in sources.autoRefreshSources) {
         report[source.id] = await importSource(source, sources);
       }
       _logger.log(
@@ -102,9 +100,39 @@ class ContentProvider with ChangeNotifier {
     ContentSource source,
     SourcesProvider sources,
   ) {
+    if (source.type.opensInBrowser) {
+      return Future.value(
+        const SourceImport(
+          message: 'Откройте страницу для импорта',
+          failed: true,
+        ),
+      );
+    }
+    return _trackImport(source, () => _runImport(source, sources));
+  }
+
+  Future<SourceImport> importBrowserMedia(
+    ContentSource source,
+    SourcesProvider sources,
+    List<ContentItem> items,
+  ) => _trackImport(source, () async {
+    try {
+      return await _saveImport(source, sources, items);
+    } catch (_) {
+      return const SourceImport(
+        message: 'Не удалось сохранить медиа источника',
+        failed: true,
+      );
+    }
+  });
+
+  Future<SourceImport> _trackImport(
+    ContentSource source,
+    Future<SourceImport> Function() run,
+  ) {
     final current = _inFlight[source.id];
     if (current != null) return current;
-    final request = _runImport(source, sources).then((result) {
+    final request = run().then((result) {
       _results[source.id] = result;
       _inFlight.remove(source.id);
       _logger.log('${source.name}: ${result.message}', isError: result.failed);
@@ -121,13 +149,7 @@ class ContentProvider with ChangeNotifier {
     SourcesProvider sources,
   ) async {
     try {
-      final token = sources.tokenFor(source.type);
-      if (source.type.requiresToken && token == null) {
-        throw SourceFailure('Подключите API ${source.type.displayName}');
-      }
       final items = switch (source.type) {
-        SourceType.reddit => await RedditParser(_client).parse(source, token!),
-        SourceType.twitter => await XParser(_client).parse(source, token!),
         SourceType.telegram => await WebScraperService(
           _client,
         ).parseTelegram(source),
@@ -141,15 +163,9 @@ class ContentProvider with ChangeNotifier {
             createdAt: source.addedAt,
           ),
         ],
+        _ => throw const SourceFailure('Откройте страницу для импорта'),
       };
-      final added = await _db.importContent(source, items);
-      await loadContent();
-      await sources.refreshStats();
-      return SourceImport(
-        message: items.isEmpty
-            ? 'В последних публикациях нет поддерживаемых медиа'
-            : 'Новых материалов: $added · всего найдено: ${items.length}',
-      );
+      return await _saveImport(source, sources, items);
     } on SourceFailure catch (error) {
       return SourceImport(message: error.message, failed: true);
     } on TimeoutException {
@@ -172,6 +188,21 @@ class ContentProvider with ChangeNotifier {
         failed: true,
       );
     }
+  }
+
+  Future<SourceImport> _saveImport(
+    ContentSource source,
+    SourcesProvider sources,
+    List<ContentItem> items,
+  ) async {
+    final added = await _db.importContent(source, items);
+    await loadContent();
+    await sources.refreshStats();
+    return SourceImport(
+      message: items.isEmpty
+          ? 'В последних публикациях нет поддерживаемых медиа'
+          : 'Новых материалов: $added · всего найдено: ${items.length}',
+    );
   }
 
   Future<bool> toggleSave(ContentItem item) async {

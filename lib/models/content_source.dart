@@ -51,14 +51,26 @@ class ContentSource {
     late final String name;
     late final String url;
     late final SourceType type;
-    if ({'reddit.com', 'old.reddit.com', 'm.reddit.com'}.contains(host)) {
-      if (first != 'r' || !validName.hasMatch(second)) {
-        throw const FormatException(
-          'Укажите ссылку на сообщество Reddit, например reddit.com/r/furry',
-        );
-      }
-      name = 'r/$second';
-      url = 'https://www.reddit.com/r/${second.toLowerCase()}/';
+    if ({
+      'reddit.com',
+      'old.reddit.com',
+      'm.reddit.com',
+      'redd.it',
+    }.contains(host)) {
+      final isCommunity = first == 'r' && validName.hasMatch(second);
+      name = isCommunity ? 'r/$second' : 'Reddit';
+      final path = isCommunity && parts.length == 2
+          ? '/r/${second.toLowerCase()}/'
+          : uri.path;
+      url = uri
+          .replace(
+            scheme: 'https',
+            host: host == 'reddit.com' || host == 'm.reddit.com'
+                ? 'www.reddit.com'
+                : host,
+            path: path,
+          )
+          .toString();
       type = SourceType.reddit;
     } else if ({'t.me', 'telegram.me', 'telegram.dog'}.contains(host)) {
       final channel = first == 's' ? second : first;
@@ -78,28 +90,28 @@ class ContentSource {
       url = 'https://t.me/${channel.toLowerCase()}';
       type = SourceType.telegram;
     } else if ({'x.com', 'twitter.com', 'mobile.twitter.com'}.contains(host)) {
-      if (!validName.hasMatch(first) ||
-          {
-            'home',
-            'explore',
-            'search',
-            'i',
-            'intent',
-            'login',
-          }.contains(first.toLowerCase())) {
-        throw const FormatException('Укажите ссылку на профиль X');
-      }
-      name = '@$first';
-      url = 'https://x.com/${first.toLowerCase()}';
+      name = first.isNotEmpty && validName.hasMatch(first) ? '@$first' : 'X';
+      final path = parts.length == 1 && validName.hasMatch(first)
+          ? '/${first.toLowerCase()}'
+          : uri.path;
+      url = uri.replace(scheme: 'https', host: 'x.com', path: path).toString();
       type = SourceType.twitter;
+    } else if (host == 'pin.it' || _pinterest.hasMatch(host)) {
+      name = 'Pinterest';
+      url = uri.replace(scheme: 'https').toString();
+      type = SourceType.pinterest;
     } else if (uri.scheme == 'https' &&
         MediaKind.fromUrl(uri.toString()) != null) {
       name = parts.last;
       url = uri.removeFragment().toString();
       type = SourceType.direct;
+    } else if (uri.scheme == 'https') {
+      name = host;
+      url = uri.toString();
+      type = SourceType.web;
     } else {
       throw const FormatException(
-        'Поддерживаются Reddit, публичные каналы Telegram, профили X и прямые HTTPS-ссылки на медиа',
+        'Укажите HTTPS-ссылку на веб-страницу или медиафайл',
       );
     }
 
@@ -111,6 +123,10 @@ class ContentSource {
       addedAt: DateTime.now(),
     );
   }
+
+  static final _pinterest = RegExp(
+    r'^(?:[a-z]{2}\.)?pinterest\.(?:[a-z]{2,3}|co\.[a-z]{2}|com\.[a-z]{2})$',
+  );
 
   static ContentSource defaultTelegramSource() => ContentSource(
     id: 'default_telegram_furries',
@@ -172,7 +188,7 @@ class ContentSource {
       // БАГ #1 ИСПРАВЛЕН: orElse вместо краша на неизвестном типе
       type: SourceType.values.firstWhere(
         (e) => e.name == map['type'],
-        orElse: () => SourceType.reddit,
+        orElse: () => SourceType.web,
       ),
       isActive: map['isActive'] != 0,
       isNsfw: map['isNsfw'] == 1,

@@ -38,6 +38,7 @@ class ContentGridWidget extends StatelessWidget {
                 else
                   CachedNetworkImage(
                     imageUrl: item.thumbnailUrl ?? item.mediaUrl,
+                    httpHeaders: item.mediaHeaders,
                     fit: BoxFit.cover,
                     placeholder: (_, __) =>
                         const Center(child: CircularProgressIndicator()),

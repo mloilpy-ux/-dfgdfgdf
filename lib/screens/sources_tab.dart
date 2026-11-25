@@ -131,6 +131,10 @@ class _SourceCard extends StatelessWidget {
           backgroundColor: Colors.blue,
           child: Icon(Icons.flutter_dash, color: Colors.white),
         );
+      case SourceType.pinterest:
+        return const Icon(Icons.push_pin);
+      case SourceType.web:
+        return const Icon(Icons.language);
       case SourceType.direct:
         return const Icon(Icons.link);
       case SourceType.telegram:

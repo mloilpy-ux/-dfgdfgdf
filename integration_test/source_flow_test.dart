@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
@@ -11,6 +12,7 @@ import 'package:furry_content_hub/providers/logger_provider.dart';
 import 'package:furry_content_hub/providers/settings_provider.dart';
 import 'package:furry_content_hub/providers/sources_provider.dart';
 import 'package:furry_content_hub/screens/gifs_screen.dart';
+import 'package:furry_content_hub/services/browser_media.dart';
 import 'package:furry_content_hub/services/database_service.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
@@ -19,6 +21,7 @@ import 'package:path/path.dart';
 import 'package:provider/provider.dart';
 import 'package:sqflite/sqflite.dart';
 import 'package:video_player/video_player.dart';
+import 'package:webview_flutter/webview_flutter.dart';
 
 void main() {
   IntegrationTestWidgetsFlutterBinding.ensureInitialized();
@@ -271,51 +274,105 @@ void main() {
     await deleteDatabase(path);
   });
 
-  testWidgets('Reddit and X use their APIs and preserve media categories', (
-    _,
+  testWidgets('Android WebView imports page media without API tokens', (
+    tester,
   ) async {
-    final path = join(await getDatabasesPath(), 'oauth_import_test.db');
+    final path = join(await getDatabasesPath(), 'browser_import_test.db');
     await deleteDatabase(path);
     final db = DatabaseService(path: path);
-    final sources = SourcesProvider(database: db)
-      ..setToken(SourceType.reddit, 'reddit-fixture')
-      ..setToken(SourceType.twitter, 'x-fixture');
+    final sources = SourcesProvider(database: db);
     final content = ContentProvider(
       database: db,
-      client: MockClient((request) async {
-        if (request.url.host == 'oauth.reddit.com') {
-          expect(request.headers['authorization'], 'Bearer reddit-fixture');
-          expect(request.url.path, '/r/furry/hot');
-          return http.Response('''
-          {"data":{"children":[
-            {"data":{"id":"a","title":"A","url":"https://example.org/photo.png"}},
-            {"data":{"id":"b","title":"B","url":"https://example.org/anim.gif?size=2"}}
-          ]}}
-        ''', 200);
-        }
-        expect(request.headers['authorization'], 'Bearer x-fixture');
-        expect(request.url.host, 'api.x.com');
-        if (request.url.path.startsWith('/2/users/by/username/')) {
-          return http.Response('{"data":{"id":"42"}}', 200);
-        }
-        expect(request.url.path, '/2/users/42/tweets');
-        return http.Response('''
-        {"data":[{"id":"7","text":"V","attachments":{"media_keys":["media1"]}}],
-         "includes":{"media":[{"media_key":"media1","type":"video","variants":[
-           {"content_type":"video/mp4","url":"https://example.org/video.mp4"}
-         ]}]}}
-      ''', 200);
+      client: MockClient((_) async {
+        throw StateError('The browser flow must not call an API');
       }),
     );
-    final reddit = await sources.addSource(
-      'https://old.reddit.com/r/Furry/comments/id/title',
+    final controller = WebViewController();
+    await controller.setJavaScriptMode(JavaScriptMode.unrestricted);
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(body: WebViewWidget(controller: controller)),
+      ),
     );
-    final x = await sources.addSource('https://twitter.com/Fixture/media');
-    expect((await content.importSource(reddit, sources)).failed, isFalse);
-    expect((await content.importSource(x, sources)).failed, isFalse);
-    for (final kind in MediaKind.values) {
-      expect(content.itemsFor(kind, showNsfw: false), hasLength(1));
+    await tester.pump(const Duration(milliseconds: 200));
+    final script = await BrowserMedia.loadScript();
+    const pixel =
+        'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7';
+    final pages = [
+      (
+        'https://old.reddit.com/r/Furry/comments/id/title',
+        SourceType.reddit,
+        MediaKind.image,
+        '<shreddit-post post-title="Обои"><img width="140" height="140" src="$pixel" data-src="https://i.redd.it/fixture.png"></shreddit-post>',
+      ),
+      (
+        'https://twitter.com/Artist/status/123',
+        SourceType.twitter,
+        MediaKind.image,
+        '<article><img width="140" height="140" src="$pixel" data-src="https://pbs.twimg.com/media/fixture?format=jpg&amp;name=large"></article>',
+      ),
+      (
+        'https://www.pinterest.de/pin/123/',
+        SourceType.pinterest,
+        MediaKind.gif,
+        '<div data-test-id="pin"><img width="140" height="140" src="$pixel" data-src="https://i.pinimg.com/originals/fixture.gif"></div>',
+      ),
+      (
+        'https://example.org/gallery?page=2',
+        SourceType.web,
+        MediaKind.video,
+        '<main><a href="https://example.org/media/clip.mp4">Ролик</a></main>',
+      ),
+    ];
+    for (final (url, type, kind, markup) in pages) {
+      final source = await sources.addSource(url);
+      final expected = Uri.parse(source.url);
+      expect(source.type, type);
+      expect(source.type.opensInBrowser, isTrue);
+      expect(expected.path, Uri.parse(url).path);
+      expect(expected.query, Uri.parse(url).query);
+
+      final loaded = Completer<void>();
+      await controller.setNavigationDelegate(
+        NavigationDelegate(
+          onPageFinished: (url) {
+            if (Uri.tryParse(url)?.host == expected.host && !loaded.isCompleted)
+              loaded.complete();
+          },
+        ),
+      );
+      await controller.loadHtmlString(
+        '<!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1"><meta charset="utf-8"></head><body>$markup</body></html>',
+        baseUrl: source.url,
+      );
+      await loaded.future.timeout(const Duration(seconds: 25));
+      final actualPage = BrowserMedia.httpsUri(await controller.currentUrl())!;
+      final items = BrowserMedia.fromPage(
+        await controller.runJavaScriptReturningResult(script),
+        source,
+        actualPage,
+      );
+      expect(items.single.kind, kind);
+      expect(
+        (await content.importBrowserMedia(source, sources, items)).failed,
+        isFalse,
+      );
+      expect(
+        (await content.importBrowserMedia(source, sources, items)).message,
+        contains('Новых материалов: 0'),
+      );
     }
+    expect(
+      sources.autoRefreshSources.every(
+        (entry) => entry.type == SourceType.telegram,
+      ),
+      isTrue,
+    );
+    expect(
+      content.items.where((item) => item.id.startsWith('web_')),
+      hasLength(4),
+    );
+    await tester.pumpWidget(const SizedBox.shrink());
     content.dispose();
     sources.dispose();
     await (await db.database).close();
