@@ -4,6 +4,8 @@ plugins {
     id("dev.flutter.flutter-gradle-plugin")
 }
 
+val parallelInstall = providers.gradleProperty("parallelInstall").orNull == "true"
+
 android {
     namespace = "com.example.furry_content_hub"
     compileSdk = 36
@@ -19,7 +21,12 @@ android {
     }
 
     defaultConfig {
-        applicationId = "com.example.furry_content_hub"
+        applicationId = if (parallelInstall) {
+            "com.example.furry_content_hub.preview"
+        } else {
+            "com.example.furry_content_hub"
+        }
+        manifestPlaceholders["hubAppLabel"] = if (parallelInstall) "Furry Hub (тест)" else "Furry Hub"
         minSdk = 21
         targetSdk = 36
         versionCode = flutter.versionCode

@@ -32,11 +32,19 @@ jobs:
       - name: Check Dart code
         run: flutter analyze --no-pub --no-fatal-infos --no-fatal-warnings
       - name: Build APK
-        run: flutter build apk --release --no-pub
+        run: flutter build apk --release
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
           name: release-apk
+          path: build/app/outputs/flutter-apk/app-release.apk
+          if-no-files-found: error
+      - name: Build APK for side-by-side installation
+        run: ORG_GRADLE_PROJECT_parallelInstall=true flutter build apk --release
+      - name: Upload side-by-side APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: parallel-install-apk
           path: build/app/outputs/flutter-apk/app-release.apk
           if-no-files-found: error
 
