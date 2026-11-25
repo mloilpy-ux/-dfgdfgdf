@@ -37,10 +37,13 @@ void main() {
       await deleteDatabase(path);
     });
     final png = base64Decode(
-      'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jPioAAAAASUVORK5CYII=',
+      'iVBORw0KGgoAAAANSUhEUgAAABAAAAAYCAIAAAB8wupbAAAAHUlEQVR4nGMscZvJQApgIkn1qIZRDaMaRjWQrAEAha'
+      '8Bg6vGN80AAAAASUVORK5CYII=',
     );
     final gif = base64Decode(
-      'R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7',
+      'R0lGODlhEAAQAIEAAHMUcwAAAAAAAAAAACH/C05FVFNDQVBFMi4wAwEAAAAh+QQADwAAACwAAAAAEAAQAAAIHQABCB'
+      'xIsKDBgwgTKlzIsKHDhxAjSpxIsaLFgQEBACH5BAEPAAEALAAAAAAQABAAgSigggAAAAAAAAAAAAgdAAEIHEiwoMGD'
+      'CBMqXMiwocOHECNKnEixosWBAQEAOw==',
     );
     final video = base64Decode(
       'AAAAIGZ0eXBpc29tAAACAGlzb21pc28yYXZjMW1wNDEAAAORbW9vdgAAAGxtdmhkAAAAAAAAAAAAAAAAAAAD6AAAB9AAAQA'
@@ -162,7 +165,7 @@ void main() {
     expect(find.text('Установить обои'), findsOneWidget);
     await tester.tap(find.byTooltip('Другие разделы'));
     await _waitFor(tester, find.text('Фильтр по источнику'));
-    await tester.tap(find.text('Фильтр по источнику'));
+    await tester.tap(_menuItem('Фильтр по источнику'));
     final sourceOption = find.descendant(
       of: find.byType(SimpleDialog),
       matching: find.text('@fixture'),
@@ -178,7 +181,7 @@ void main() {
     await _waitFor(tester, renderedImage);
     await tester.tap(find.byTooltip('Другие разделы'));
     await _waitFor(tester, find.text('GIF'));
-    await tester.tap(find.text('GIF'));
+    await tester.tap(_menuItem('GIF'));
     await _waitFor(
       tester,
       find.descendant(of: find.byType(GifsScreen), matching: renderedImage),
@@ -188,7 +191,7 @@ void main() {
     await _waitFor(tester, find.text('Установить обои'));
     await tester.tap(find.byTooltip('Другие разделы'));
     await _waitFor(tester, find.text('Видео'));
-    await tester.tap(find.text('Видео'));
+    await tester.tap(_menuItem('Видео'));
     await _waitFor(tester, find.byType(VideoPlayer));
     await tester.binding.handlePopRoute();
     await _waitFor(tester, find.text('Установить обои'));
@@ -329,3 +332,8 @@ Future<void> _waitFor(WidgetTester tester, Finder finder) async {
   expect(finder, findsOneWidget);
   await tester.pump(const Duration(milliseconds: 400));
 }
+
+Finder _menuItem(String title) => find.ancestor(
+  of: find.text(title),
+  matching: find.byWidgetPredicate((widget) => widget is PopupMenuItem),
+);
