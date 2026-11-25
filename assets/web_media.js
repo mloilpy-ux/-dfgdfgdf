@@ -1,5 +1,6 @@
 (() => {
-  const host = location.hostname;
+  const page = https(location.href) || https(document.baseURI);
+  const host = page?.hostname || '';
   const matches = (value, domain) => value === domain || value.endsWith('.' + domain);
   const reddit = matches(host, 'reddit.com');
   const twitter = matches(host, 'x.com') || matches(host, 'twitter.com');
@@ -62,7 +63,12 @@
       if (element.shadowRoot) roots.push(element.shadowRoot);
     }
   }
-  const nodes = roots.flatMap(root => Array.from(root.querySelectorAll('img, video, a[href]')));
+  const imageStyles = '[style*="background-image"]';
+  const mediaSelector = 'img, video, a[href], ' +
+    ['[data-testid="tweetPhoto"]', 'figure', '[role="img"]'].map(
+      base => base + imageStyles + ', ' + base + ' ' + imageStyles
+    ).join(', ');
+  const nodes = roots.flatMap(root => Array.from(root.querySelectorAll(mediaSelector)));
   for (const node of nodes) {
     if (items.size >= 60) break;
     const tag = node.tagName;
@@ -71,10 +77,15 @@
     const enclosingLink = node.closest('a[href]');
     let url, kind, thumbnail;
 
-    if (tag === 'IMG') {
+    if (tag === 'IMG' || (tag !== 'VIDEO' && tag !== 'A')) {
       if (node.closest('header, nav, footer, [role="banner"], [role="navigation"]')) continue;
       if (!inViewport(node, 75)) continue;
-      url = imageSource(node);
+      if (tag === 'IMG') {
+        url = imageSource(node);
+      } else {
+        const background = getComputedStyle(node).backgroundImage.match(/url\(["']?(.+?)["']?\)/);
+        url = https(background?.[1]);
+      }
       if (!url) continue;
       if (twitter && !(url.hostname === 'pbs.twimg.com' && url.pathname.startsWith('/media/'))) continue;
       if (pinterest && !matches(url.hostname, 'pinimg.com')) continue;
@@ -99,7 +110,7 @@
     url.hash = '';
     const link = https(card?.getAttribute('permalink')) ||
       https(card?.querySelector('a[href*="/status/"], a[href*="/comments/"], a[href*="/pin/"]')?.href) ||
-      (tag !== 'A' && enclosingLink?.hostname === host ? https(enclosingLink.href) : null) || https(location.href);
+      (tag !== 'A' && enclosingLink?.hostname === host ? https(enclosingLink.href) : null) || page;
     const title = card?.getAttribute('post-title') ||
       node.getAttribute('alt') || node.getAttribute('title') ||
       (tag === 'A' ? node.textContent.trim() : '') || document.title;
@@ -113,5 +124,5 @@
       }),
     });
   }
-  return JSON.stringify({page: location.href, profile, items: [...items.values()]});
+  return JSON.stringify({page: page?.href, profile, items: [...items.values()]});
 })()

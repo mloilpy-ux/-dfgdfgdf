@@ -22,7 +22,7 @@ class _BrowserSourceScreenState extends State<BrowserSourceScreen> {
   final _controller = WebViewController();
   String? _script;
   String? _message;
-  String? _address;
+  Uri? _page;
   int _progress = 0;
   bool _importing = false;
 
@@ -53,7 +53,7 @@ class _BrowserSourceScreenState extends State<BrowserSourceScreen> {
           onPageStarted: (url) {
             if (!mounted) return;
             setState(() {
-              _address = BrowserMedia.httpsUri(url)?.host;
+              _page = BrowserMedia.httpsUri(url);
               _progress = 0;
               _message = null;
             });
@@ -64,7 +64,7 @@ class _BrowserSourceScreenState extends State<BrowserSourceScreen> {
           onPageFinished: (url) {
             if (!mounted) return;
             setState(() {
-              _address = BrowserMedia.httpsUri(url)?.host;
+              _page = BrowserMedia.httpsUri(url);
               _progress = 100;
             });
           },
@@ -92,7 +92,8 @@ class _BrowserSourceScreenState extends State<BrowserSourceScreen> {
     final content = context.read<ContentProvider>();
     setState(() => _importing = true);
     try {
-      final page = BrowserMedia.httpsUri(await _controller.currentUrl());
+      final page =
+          BrowserMedia.httpsUri(await _controller.currentUrl()) ?? _page;
       if (page == null)
         throw const FormatException('Сначала откройте страницу');
       final response = await _controller.runJavaScriptReturningResult(_script!);
@@ -120,7 +121,7 @@ class _BrowserSourceScreenState extends State<BrowserSourceScreen> {
     child: Scaffold(
       appBar: AppBar(
         title: Text(
-          _address ?? widget.source.name,
+          _page?.host ?? widget.source.name,
           maxLines: 1,
           overflow: TextOverflow.ellipsis,
         ),

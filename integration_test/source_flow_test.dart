@@ -309,7 +309,7 @@ void main() {
         'https://twitter.com/Artist/status/123',
         SourceType.twitter,
         MediaKind.image,
-        '<article><img width="140" height="140" src="$pixel" data-src="https://pbs.twimg.com/media/fixture?format=jpg&amp;name=large"></article>',
+        '''<article><div data-testid="tweetPhoto" style="width:140px;height:140px;background-image:url('https://pbs.twimg.com/media/fixture?format=jpg&amp;name=large')"></div></article>''',
       ),
       (
         'https://www.pinterest.de/pin/123/',
@@ -332,21 +332,27 @@ void main() {
       expect(expected.path, Uri.parse(url).path);
       expect(expected.query, Uri.parse(url).query);
 
-      final loaded = Completer<void>();
+      final loaded = Completer<Uri>();
       await controller.setNavigationDelegate(
         NavigationDelegate(
           onPageFinished: (url) {
-            if (Uri.tryParse(url)?.host == expected.host && !loaded.isCompleted)
-              loaded.complete();
+            final page = BrowserMedia.httpsUri(url);
+            if (page != null &&
+                page.host == expected.host &&
+                !loaded.isCompleted) {
+              loaded.complete(page);
+            }
           },
         ),
       );
       await controller.loadHtmlString(
-        '<!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1"><meta charset="utf-8"></head><body>$markup</body></html>',
+        '''<!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1"><meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src data:; style-src 'unsafe-inline'"></head><body>$markup</body></html>''',
         baseUrl: source.url,
       );
-      await loaded.future.timeout(const Duration(seconds: 25));
-      final actualPage = BrowserMedia.httpsUri(await controller.currentUrl())!;
+      final actualPage = await loaded.future.timeout(
+        const Duration(seconds: 25),
+      );
+      await tester.pump(const Duration(milliseconds: 250));
       final items = BrowserMedia.fromPage(
         await controller.runJavaScriptReturningResult(script),
         source,
