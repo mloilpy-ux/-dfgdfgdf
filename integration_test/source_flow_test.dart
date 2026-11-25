@@ -10,6 +10,7 @@ import 'package:furry_content_hub/providers/content_provider.dart';
 import 'package:furry_content_hub/providers/logger_provider.dart';
 import 'package:furry_content_hub/providers/settings_provider.dart';
 import 'package:furry_content_hub/providers/sources_provider.dart';
+import 'package:furry_content_hub/screens/gifs_screen.dart';
 import 'package:furry_content_hub/services/database_service.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
@@ -92,7 +93,8 @@ void main() {
         }
         if (request.url.path != '/s/fixture')
           return http.Response('not found', 404);
-        return http.Response('''
+        final body =
+            '''
         <section class="tgme_channel_history">
           <div class="tgme_widget_message" data-post="fixture/42">
             <div class="tgme_widget_message_text">Тестовые обои</div>
@@ -102,7 +104,8 @@ void main() {
             <a class="tgme_widget_message_date" href="https://t.me/fixture/42"><time datetime="2026-06-01T12:00:00Z"></time></a>
           </div>
         </section>
-      ''', 200);
+      ''';
+        return http.Response.bytes(utf8.encode(body), 200);
       }),
     );
 
@@ -154,7 +157,7 @@ void main() {
     );
     expect(content.savedItems.single.id, wallpaper.id);
 
-    await tester.pageBack();
+    await tester.binding.handlePopRoute();
     await _waitFor(tester, find.text('Тестовые обои'));
     expect(find.text('Установить обои'), findsOneWidget);
     await tester.tap(find.byTooltip('Другие разделы'));
@@ -176,15 +179,18 @@ void main() {
     await tester.tap(find.byTooltip('Другие разделы'));
     await _waitFor(tester, find.text('GIF'));
     await tester.tap(find.text('GIF'));
-    await _waitFor(tester, renderedImage);
+    await _waitFor(
+      tester,
+      find.descendant(of: find.byType(GifsScreen), matching: renderedImage),
+    );
     expect(find.text('Нет GIF'), findsNothing);
-    await tester.pageBack();
+    await tester.binding.handlePopRoute();
     await _waitFor(tester, find.text('Установить обои'));
     await tester.tap(find.byTooltip('Другие разделы'));
     await _waitFor(tester, find.text('Видео'));
     await tester.tap(find.text('Видео'));
     await _waitFor(tester, find.byType(VideoPlayer));
-    await tester.pageBack();
+    await tester.binding.handlePopRoute();
     await _waitFor(tester, find.text('Установить обои'));
 
     final bad = await sources.addSource('@unavailable');
