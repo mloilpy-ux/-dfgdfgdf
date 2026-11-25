@@ -44,6 +44,8 @@ class ContentItem {
 
   bool get isGif => kind == MediaKind.gif;
   bool get isVideo => kind == MediaKind.video;
+  bool get usesVideoPlayer =>
+      isVideo || (isGif && MediaKind.fromUrl(mediaUrl) == MediaKind.video);
 
   Map<String, dynamic> toMap() => {
     'id': id,

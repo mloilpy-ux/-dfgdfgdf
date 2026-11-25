@@ -33,20 +33,28 @@ class ContentGridWidget extends StatelessWidget {
             child: Stack(
               fit: StackFit.expand,
               children: [
-                CachedNetworkImage(
-                  imageUrl: item.thumbnailUrl ?? item.mediaUrl,
-                  fit: BoxFit.cover,
-                  placeholder: (_, __) => const Center(child: CircularProgressIndicator()),
-                  errorWidget: (_, __, ___) => const Icon(Icons.broken_image, size: 48),
-                ),
-                if (item.isGif)
-                  const Positioned(
+                if (item.usesVideoPlayer && item.thumbnailUrl == null)
+                  const Center(child: Icon(Icons.play_circle_outline, size: 48))
+                else
+                  CachedNetworkImage(
+                    imageUrl: item.thumbnailUrl ?? item.mediaUrl,
+                    fit: BoxFit.cover,
+                    placeholder: (_, __) =>
+                        const Center(child: CircularProgressIndicator()),
+                    errorWidget: (_, __, ___) =>
+                        const Icon(Icons.broken_image, size: 48),
+                  ),
+                if (item.isGif || item.isVideo)
+                  Positioned(
                     top: 8,
                     left: 8,
                     child: Chip(
-                      label: Text('GIF', style: TextStyle(fontSize: 10)),
+                      label: Text(
+                        item.isVideo ? 'Видео' : 'GIF',
+                        style: const TextStyle(fontSize: 10),
+                      ),
                       backgroundColor: Colors.orange,
-                      padding: EdgeInsets.all(4),
+                      padding: const EdgeInsets.all(4),
                     ),
                   ),
                 if (item.isNsfw)
@@ -59,7 +67,14 @@ class ContentGridWidget extends StatelessWidget {
                         color: Colors.red,
                         borderRadius: BorderRadius.circular(4),
                       ),
-                      child: const Text('18+', style: TextStyle(color: Colors.white, fontSize: 10, fontWeight: FontWeight.bold)),
+                      child: const Text(
+                        '18+',
+                        style: TextStyle(
+                          color: Colors.white,
+                          fontSize: 10,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
                     ),
                   ),
                 Positioned(
@@ -72,7 +87,10 @@ class ContentGridWidget extends StatelessWidget {
                       gradient: LinearGradient(
                         begin: Alignment.bottomCenter,
                         end: Alignment.topCenter,
-                        colors: [Colors.black.withOpacity(0.8), Colors.transparent],
+                        colors: [
+                          Colors.black.withOpacity(0.8),
+                          Colors.transparent,
+                        ],
                       ),
                     ),
                     child: Text(

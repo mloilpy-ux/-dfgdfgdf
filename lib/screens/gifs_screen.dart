@@ -56,18 +56,23 @@ class _GifsScreenState extends State<GifsScreen> {
         .toList();
   }
 
-  bool _usesVideo(ContentItem item) =>
-      MediaKind.fromUrl(item.mediaUrl) == MediaKind.video;
-
   Future<void> _downloadImage(ContentItem item) async {
+    if (_isDownloading) return;
     HapticFeedback.mediumImpact();
     setState(() => _isDownloading = true);
 
     try {
       final response = await http.get(Uri.parse(item.mediaUrl));
-      final dir = await getExternalStorageDirectory();
-      final fileName = 'furry_gif_${DateTime.now().millisecondsSinceEpoch}.mp4';
-      final file = File('${dir!.path}/$fileName');
+      if (response.statusCode != 200 || response.bodyBytes.isEmpty) {
+        throw const HttpException('GIF unavailable');
+      }
+      final dir =
+          await getExternalStorageDirectory() ??
+          await getApplicationDocumentsDirectory();
+      final extension = item.usesVideoPlayer ? 'mp4' : 'gif';
+      final fileName =
+          'furry_gif_${DateTime.now().millisecondsSinceEpoch}.$extension';
+      final file = File('${dir.path}/$fileName');
       await file.writeAsBytes(response.bodyBytes);
 
       if (mounted) {
@@ -90,7 +95,7 @@ class _GifsScreenState extends State<GifsScreen> {
         );
       }
     } finally {
-      setState(() => _isDownloading = false);
+      if (mounted) setState(() => _isDownloading = false);
     }
   }
 
@@ -156,12 +161,10 @@ class _GifsScreenState extends State<GifsScreen> {
   }
 
   void _handleError(String url) {
-    setState(() {
-      _errorUrls.add(url);
-    });
-
-    Future.delayed(const Duration(milliseconds: 300), () {
-      if (mounted) _nextImage();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted && !_errorUrls.contains(url)) {
+        setState(() => _errorUrls.add(url));
+      }
     });
   }
 
@@ -222,7 +225,7 @@ class _GifsScreenState extends State<GifsScreen> {
             child: Stack(
               fit: StackFit.expand,
               children: [
-                if (_usesVideo(currentItem))
+                if (currentItem.usesVideoPlayer)
                   MediaVideoPreview(
                     key: ValueKey(currentItem.mediaUrl),
                     muted: true,
