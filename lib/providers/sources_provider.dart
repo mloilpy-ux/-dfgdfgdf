@@ -41,10 +41,11 @@ class SourcesProvider with ChangeNotifier {
     }
   }
 
-  Future<void> addSource(String url) async {
+  Future<void> addSource(String url) => saveSource(ContentSource.fromUrl(url));
+
+  Future<void> saveSource(ContentSource source) async {
     try {
-      _logger.log('➕ Добавление источника: $url');
-      final source = ContentSource.fromUrl(url);
+      _logger.log('➕ Добавление источника: ${source.url}');
       await _db.insertSource(source);
 
       // БАГ #3 ИСПРАВЛЕН: обновляем локальный список напрямую

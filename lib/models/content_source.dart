@@ -1,6 +1,8 @@
 import 'dart:math';
 
-enum SourceType { reddit, twitter, telegram }
+import 'source_type.dart';
+
+export 'source_type.dart';
 
 class ContentSource {
   final String id;
