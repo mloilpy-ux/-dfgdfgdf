@@ -30,8 +30,11 @@ class ContentSource {
 
   factory ContentSource.fromUrl(String input) {
     final value = input.trim();
+    final path = value.startsWith('/') ? value.substring(1) : value;
     final normalized = value.startsWith('@')
         ? 'https://t.me/${value.substring(1)}'
+        : (path.startsWith('r/') || path.startsWith('u/'))
+        ? 'https://www.reddit.com/$path'
         : value;
     final uri = Uri.tryParse(
       normalized.contains('://') ? normalized : 'https://$normalized',
@@ -72,6 +75,22 @@ class ContentSource {
           )
           .toString();
       type = SourceType.reddit;
+      if (uri.path == '/media') {
+        final media = Uri.tryParse(uri.queryParameters['url'] ?? '');
+        if (media != null &&
+            media.scheme == 'https' &&
+            media.userInfo.isEmpty &&
+            {
+              'i.redd.it',
+              'preview.redd.it',
+              'external-preview.redd.it',
+              'external-i.redd.it',
+              'v.redd.it',
+            }.contains(media.host) &&
+            MediaKind.fromUrl(media.toString()) != null) {
+          return ContentSource.fromUrl(media.toString());
+        }
+      }
     } else if ({'t.me', 'telegram.me', 'telegram.dog'}.contains(host)) {
       final channel = first == 's' ? second : first;
       if (!validName.hasMatch(channel) ||

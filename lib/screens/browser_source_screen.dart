@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import 'package:url_launcher/url_launcher.dart';
 import 'package:webview_flutter/webview_flutter.dart';
 import 'package:webview_flutter_android/webview_flutter_android.dart';
 
@@ -99,7 +100,9 @@ class _BrowserSourceScreenState extends State<BrowserSourceScreen> {
       final response = await _controller.runJavaScriptReturningResult(_script!);
       final items = BrowserMedia.fromPage(response, widget.source, page);
       final message = items.isEmpty
-          ? 'Здесь не найдено видимых медиа. Прокрутите страницу или откройте публикацию.'
+          ? (widget.source.type == SourceType.reddit
+                ? 'Reddit не показал доступные ссылки на медиа. Откройте публикацию или переключите версию Reddit в меню.'
+                : 'Здесь не найдено видимых медиа. Прокрутите страницу или откройте публикацию.')
           : (await content.importBrowserMedia(
               widget.source,
               sources,
@@ -115,6 +118,24 @@ class _BrowserSourceScreenState extends State<BrowserSourceScreen> {
     }
   }
 
+  Future<void> _openReddit(String action) async {
+    final original = BrowserMedia.httpsUri(widget.source.url);
+    if (original == null) return;
+    final current = _page ?? original;
+    final page =
+        current.host == 'reddit.com' || current.host.endsWith('.reddit.com')
+        ? current
+        : original;
+    if (action == 'external') {
+      if (!await launchUrl(page, mode: LaunchMode.externalApplication) &&
+          mounted) {
+        setState(() => _message = 'Не удалось открыть внешний браузер');
+      }
+    } else if (page.host == 'reddit.com' || page.host.endsWith('.reddit.com')) {
+      await _controller.loadRequest(page.replace(host: action));
+    }
+  }
+
   @override
   Widget build(BuildContext context) => Theme(
     data: wallpaperTheme,
@@ -126,6 +147,25 @@ class _BrowserSourceScreenState extends State<BrowserSourceScreen> {
           overflow: TextOverflow.ellipsis,
         ),
         actions: [
+          if (widget.source.type == SourceType.reddit)
+            PopupMenuButton<String>(
+              tooltip: 'Варианты просмотра Reddit',
+              onSelected: _openReddit,
+              itemBuilder: (_) => const [
+                PopupMenuItem(
+                  value: 'www.reddit.com',
+                  child: Text('Новый Reddit'),
+                ),
+                PopupMenuItem(
+                  value: 'old.reddit.com',
+                  child: Text('Старый Reddit'),
+                ),
+                PopupMenuItem(
+                  value: 'external',
+                  child: Text('Открыть в обычном браузере'),
+                ),
+              ],
+            ),
           IconButton(
             tooltip: 'Назад по странице',
             icon: const Icon(Icons.arrow_back_ios_new_rounded),

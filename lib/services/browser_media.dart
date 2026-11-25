@@ -37,6 +37,21 @@ class BrowserMedia {
       throw const FormatException('Страница изменилась. Повторите импорт');
     }
 
+    switch (data['issue']) {
+      case 'challenge':
+        throw const FormatException(
+          'Reddit показывает проверку браузера. Дождитесь открытия ленты и повторите импорт.',
+        );
+      case 'login':
+        throw const FormatException(
+          'Reddit открыл страницу входа. Сначала откройте публикацию.',
+        );
+      case 'blocked':
+        throw const FormatException(
+          'Reddit ограничил доступ к странице. Можно проверить эту ссылку в обычном браузере.',
+        );
+    }
+
     final items = <String, ContentItem>{};
     for (final candidate in (data['items'] as List).take(60)) {
       if (candidate is! Map) continue;

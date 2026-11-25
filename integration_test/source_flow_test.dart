@@ -296,6 +296,16 @@ void main() {
     );
     await tester.pump(const Duration(milliseconds: 200));
     final script = await BrowserMedia.loadScript();
+    expect(
+      ContentSource.fromUrl('r/furry').url,
+      'https://www.reddit.com/r/furry/',
+    );
+    expect(
+      ContentSource.fromUrl(
+        'https://www.reddit.com/media?url=https%3A%2F%2Fi.redd.it%2Ffixture.png',
+      ).url,
+      'https://i.redd.it/fixture.png',
+    );
     const pixel =
         'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7';
     final pages = [
@@ -303,7 +313,7 @@ void main() {
         'https://old.reddit.com/r/Furry/comments/id/title',
         SourceType.reddit,
         MediaKind.image,
-        '<shreddit-post post-title="Обои" nsfw="false"><img width="140" height="140" src="$pixel" data-src="https://i.redd.it/fixture.png"></shreddit-post>',
+        '<shreddit-post post-title="Обои" nsfw="false" content-href="https://i.redd.it/fixture.png" style="display:block;width:140px;height:140px"><h2>Обои</h2></shreddit-post>',
       ),
       (
         'https://twitter.com/Artist/status/123',

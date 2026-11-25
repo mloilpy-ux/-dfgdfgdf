@@ -56,11 +56,62 @@
   }
 
   const items = new Map();
+  const redditStatus = reddit ? redditPageStatus() : null;
+  if (redditStatus) {
+    return JSON.stringify({page: page?.href, profile, items: [], issue: redditStatus});
+  }
+
+  function redditPageStatus() {
+    if (/^\/(?:login|register)(?:\/|$)/.test(page.pathname)) return 'login';
+    if (document.querySelector('form input[name="js_challenge"], form[action*="challenge"]')) return 'challenge';
+    if (!document.querySelector('shreddit-post, .thing[data-permalink]')) {
+      const text = (document.body?.innerText || '').slice(0, 12000);
+      if (/blocked by network security|you[’']ve been blocked|request has been blocked/i.test(text)) return 'blocked';
+    }
+    return null;
+  }
+
+  function redditAsset(value) {
+    const ref = https(value);
+    if (!ref) return null;
+    const url = matches(ref.hostname, 'reddit.com') && ref.pathname === '/media'
+      ? https(ref.searchParams.get('url')) : ref;
+    if (!url || !['i.redd.it', 'preview.redd.it', 'external-preview.redd.it', 'external-i.redd.it', 'v.redd.it'].includes(url.hostname)) return null;
+    return fileKind(url) ? url : null;
+  }
+
+  function addRedditCard(card) {
+    const rect = card.getBoundingClientRect();
+    if (rect.width < 50 || rect.height < 25 || rect.bottom <= 0 || rect.top >= innerHeight) return;
+    if (card.matches('[nsfw]:not([nsfw="false"]):not([nsfw="0"]), [over-18]:not([over-18="false"]):not([over-18="0"]), .over18') ||
+        card.querySelector('[data-testid="nsfw-badge"]')) return;
+    if (getComputedStyle(card).visibility !== 'visible' || getComputedStyle(card).opacity === '0') return;
+    const assets = [
+      card.getAttribute('content-href'), card.getAttribute('data-url'),
+      ...Array.from(card.querySelectorAll('a.title[href], a.thumbnail[href], a[href*="/media?url="]'), link => link.href)
+    ];
+    const post = https(card.getAttribute('permalink') || card.getAttribute('data-permalink')) || page;
+    const title = card.getAttribute('post-title') || card.querySelector('a.title, h1, h2, h3')?.textContent || document.title;
+    for (const value of assets) {
+      const url = redditAsset(value);
+      if (!url || items.size >= 60) continue;
+      url.hash = '';
+      items.set(url.href, {url: url.href, kind: fileKind(url), title: title.trim().slice(0, 180), post: post.href, adult: false});
+    }
+  }
   const roots = [document];
   for (let i = 0; i < roots.length && roots.length < 50; i++) {
     for (const element of roots[i].querySelectorAll('*')) {
       if (roots.length >= 50) break;
       if (element.shadowRoot) roots.push(element.shadowRoot);
+    }
+  }
+  if (reddit) {
+    for (const root of roots) {
+      for (const card of root.querySelectorAll('shreddit-post, .thing[data-permalink]')) {
+        if (items.size >= 60) break;
+        addRedditCard(card);
+      }
     }
   }
   const imageStyles = '[style*="background-image"]';
@@ -72,14 +123,14 @@
   for (const node of nodes) {
     if (items.size >= 60) break;
     const tag = node.tagName;
-    const postSelector = 'shreddit-post, article, [data-testid="post-container"], [data-test-id="pin"]';
+    const postSelector = 'shreddit-post, .thing[data-permalink], article, [data-testid="post-container"], [data-test-id="pin"]';
     const card = node.closest(postSelector) || node.getRootNode().host?.closest(postSelector);
     const enclosingLink = node.closest('a[href]');
     let url, kind, thumbnail;
 
     if (tag === 'IMG' || (tag !== 'VIDEO' && tag !== 'A')) {
       if (node.closest('header, nav, footer, [role="banner"], [role="navigation"]')) continue;
-      if (!inViewport(node, 75)) continue;
+      if (!inViewport(node, reddit && card ? 44 : 75)) continue;
       if (tag === 'IMG') {
         url = imageSource(node);
       } else {
@@ -101,17 +152,17 @@
       thumbnail = https(node.getAttribute('poster'));
     } else {
       if (!inViewport(node, 1) || node.querySelector('img, video')) continue;
-      url = https(node.getAttribute('href'));
+      url = (reddit ? redditAsset(node.getAttribute('href')) : null) || https(node.getAttribute('href'));
       kind = url && fileKind(url);
       if (!kind) continue;
     }
 
     if (!url || !kind) continue;
     url.hash = '';
-    const link = https(card?.getAttribute('permalink')) ||
+    const link = https(card?.getAttribute('permalink') || card?.getAttribute('data-permalink')) ||
       https(card?.querySelector('a[href*="/status/"], a[href*="/comments/"], a[href*="/pin/"]')?.href) ||
       (tag !== 'A' && enclosingLink?.hostname === host ? https(enclosingLink.href) : null) || page;
-    const title = card?.getAttribute('post-title') ||
+    const title = card?.getAttribute('post-title') || card?.querySelector('a.title')?.textContent ||
       node.getAttribute('alt') || node.getAttribute('title') ||
       (tag === 'A' ? node.textContent.trim() : '') || document.title;
     const key = url.href;
