@@ -303,7 +303,7 @@ void main() {
         'https://old.reddit.com/r/Furry/comments/id/title',
         SourceType.reddit,
         MediaKind.image,
-        '<shreddit-post post-title="Обои"><img width="140" height="140" src="$pixel" data-src="https://i.redd.it/fixture.png"></shreddit-post>',
+        '<shreddit-post post-title="Обои" nsfw="false"><img width="140" height="140" src="$pixel" data-src="https://i.redd.it/fixture.png"></shreddit-post>',
       ),
       (
         'https://twitter.com/Artist/status/123',
@@ -353,6 +353,7 @@ void main() {
         actualPage,
       );
       expect(items.single.kind, kind);
+      expect(items.single.isNsfw, isFalse);
       expect(
         (await content.importBrowserMedia(source, sources, items)).failed,
         isFalse,

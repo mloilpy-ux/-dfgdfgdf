@@ -1,5 +1,3 @@
-import 'dart:convert';
-
 import 'package:http/http.dart' as http;
 
 class SourceFailure implements Exception {
@@ -36,16 +34,6 @@ Future<http.Response> fetchSource(
 
 Future<http.Response> _read(http.Client client, http.Request request) async {
   return http.Response.fromStream(await client.send(request));
-}
-
-Map<String, dynamic> decodeSourceJson(http.Response response, String service) {
-  try {
-    final result = jsonDecode(utf8.decode(response.bodyBytes));
-    if (result is Map<String, dynamic>) return result;
-  } on FormatException {
-    // Present a useful service error without displaying the response body.
-  }
-  throw SourceFailure('$service вернул неверный формат ответа');
 }
 
 Uri? mediaUri(String? input, [Uri? base]) {

@@ -28,8 +28,21 @@
     const rect = node.getBoundingClientRect();
     if (rect.width < minSize || rect.height < minSize) return false;
     const style = getComputedStyle(node);
-    return style.visibility === 'visible' && style.opacity !== '0' &&
-      rect.bottom > 0 && rect.top < innerHeight && rect.right > 0 && rect.left < innerWidth;
+    const left = Math.max(0, rect.left);
+    const right = Math.min(innerWidth, rect.right);
+    const top = Math.max(0, rect.top);
+    const bottom = Math.min(innerHeight, rect.bottom);
+    if (style.visibility !== 'visible' || style.opacity === '0' ||
+        style.filter.includes('blur(') || left >= right || top >= bottom) return false;
+
+    const root = node.getRootNode();
+    return [0.25, 0.75].some(fraction => {
+      const x = left + (right - left) * fraction;
+      const y = (top + bottom) / 2;
+      let hit = document.elementFromPoint(x, y);
+      if (hit && hit === root.host) hit = root.elementFromPoint(x, y);
+      return hit === node || node.contains(hit) || (style.pointerEvents === 'none' && hit === node.parentElement);
+    });
   }
 
   function imageSource(node) {
@@ -94,7 +107,10 @@
     items.set(key, {
       url: key, kind, title: (title || '').trim().slice(0, 180),
       post: link?.href, thumbnail: thumbnail?.href,
-      adult: card?.hasAttribute('nsfw') || card?.hasAttribute('over-18') || false,
+      adult: ['nsfw', 'over-18'].some(name => {
+        const flag = card?.getAttribute(name);
+        return flag != null && flag.toLowerCase() !== 'false' && flag !== '0';
+      }),
     });
   }
   return JSON.stringify({page: location.href, profile, items: [...items.values()]});
