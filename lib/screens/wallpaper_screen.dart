@@ -20,7 +20,7 @@ import 'logs_screen.dart';
 import 'sources_screen.dart';
 import 'videos_screen.dart';
 
-enum _Destination { gifs, videos, logs, filter }
+enum _Destination { gifs, videos, sources, logs, filter }
 
 class WallpaperScreen extends StatefulWidget {
   const WallpaperScreen({super.key});
@@ -47,6 +47,7 @@ class _WallpaperScreenState extends State<WallpaperScreen> {
     final content = context.read<ContentProvider>();
     final sources = context.read<SourcesProvider>();
     try {
+      await sources.loadSources();
       await content.loadContent();
       if (content.items.isEmpty) await content.parseAllActiveSources(sources);
     } catch (_) {
@@ -62,29 +63,23 @@ class _WallpaperScreenState extends State<WallpaperScreen> {
     final sources = context.read<SourcesProvider>();
     setState(() => _refreshing = true);
     try {
-      await content.parseAllActiveSources(sources);
+      final results = await content.parseAllActiveSources(sources);
+      if (results.isEmpty) {
+        _showMessage('Добавьте или включите источник');
+      } else if (results.values.every((result) => result.failed)) {
+        _showMessage(
+          'Не удалось обновить источники. Подробности в разделе «Источники»',
+        );
+      }
       if (mounted) setState(() => _index = 0);
     } finally {
       if (mounted) setState(() => _refreshing = false);
     }
   }
 
-  List<ContentItem> _wallpapers(
-    ContentProvider content,
-    SettingsProvider settings,
-  ) {
-    return content.items.where((item) {
-      return !item.isGif &&
-          !item.isVideo &&
-          (settings.showNsfw || !item.isNsfw);
-    }).toList();
-  }
-
   void _move(List<ContentItem> items, int index, int offset) {
     if (items.length < 2) return;
     HapticFeedback.selectionClick();
-    if (offset > 0)
-      context.read<ContentProvider>().markAsShown(items[index].id);
     setState(() => _index = (index + offset) % items.length);
   }
 
@@ -175,10 +170,32 @@ class _WallpaperScreenState extends State<WallpaperScreen> {
     ).push<void>(MaterialPageRoute(builder: (_) => screen));
   }
 
-  Future<void> _openSources() async {
-    await _open(const SourcesScreen());
-    if (mounted && context.read<ContentProvider>().items.isEmpty)
-      await _refresh();
+  Future<void> _openSources() => _open(const SourcesScreen());
+
+  Future<void> _chooseSource() async {
+    final provider = context.read<ContentProvider>();
+    final sources = context.read<SourcesProvider>().activeSources;
+    final chosen = await showDialog<String>(
+      context: context,
+      builder: (context) => SimpleDialog(
+        title: const Text('Показывать источник'),
+        children: [
+          SimpleDialogOption(
+            onPressed: () => Navigator.pop(context, ''),
+            child: const Text('Все источники'),
+          ),
+          for (final source in sources)
+            SimpleDialogOption(
+              onPressed: () => Navigator.pop(context, source.id),
+              child: Text(source.name),
+            ),
+        ],
+      ),
+    );
+    if (chosen != null && mounted) {
+      provider.selectSource(chosen.isEmpty ? null : chosen);
+      setState(() => _index = 0);
+    }
   }
 
   Future<void> _select(_Destination destination) async {
@@ -187,6 +204,8 @@ class _WallpaperScreenState extends State<WallpaperScreen> {
         await _open(const GifsScreen());
       case _Destination.videos:
         await _open(const VideosScreen());
+      case _Destination.sources:
+        await _chooseSource();
       case _Destination.logs:
         await _open(const LogsScreen());
       case _Destination.filter:
@@ -199,7 +218,10 @@ class _WallpaperScreenState extends State<WallpaperScreen> {
   Widget build(BuildContext context) {
     final content = context.watch<ContentProvider>();
     final settings = context.watch<SettingsProvider>();
-    final items = _wallpapers(content, settings);
+    final items = content.itemsFor(
+      MediaKind.image,
+      showNsfw: settings.showNsfw,
+    );
     final loading = _refreshing || content.isLoading;
 
     return Theme(
@@ -229,6 +251,11 @@ class _WallpaperScreenState extends State<WallpaperScreen> {
                 const PopupMenuItem(
                   value: _Destination.videos,
                   child: Text('Видео'),
+                ),
+                CheckedPopupMenuItem(
+                  value: _Destination.sources,
+                  checked: content.selectedSourceId != null,
+                  child: const Text('Фильтр по источнику'),
                 ),
                 const PopupMenuItem(
                   value: _Destination.logs,
@@ -275,7 +302,7 @@ class _WallpaperScreenState extends State<WallpaperScreen> {
             ),
             const SizedBox(height: 8),
             const Text(
-              'Проверь источники или обнови подборку.',
+              'Проверь источники, фильтр или обнови подборку.',
               textAlign: TextAlign.center,
             ),
             const SizedBox(height: 24),

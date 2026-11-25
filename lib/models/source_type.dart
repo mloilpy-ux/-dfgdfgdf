@@ -1,30 +1,22 @@
-// lib/models/source_type.dart
 enum SourceType {
   reddit,
   twitter,
   telegram,
-}
+  direct;
 
-extension SourceTypeExtension on SourceType {
-  String get displayName {
-    switch (this) {
-      case SourceType.reddit:
-        return 'Reddit';
-      case SourceType.twitter:
-        return 'Twitter/X';
-      case SourceType.telegram:
-        return 'Telegram';
-    }
-  }
+  String get displayName => switch (this) {
+    reddit => 'Reddit',
+    twitter => 'X',
+    telegram => 'Telegram',
+    direct => 'Медиафайл',
+  };
 
-  String get icon {
-    switch (this) {
-      case SourceType.reddit:
-        return '🐾';
-      case SourceType.twitter:
-        return '🐦';
-      case SourceType.telegram:
-        return '✈️';
-    }
-  }
+  String get icon => switch (this) {
+    reddit => '🔴',
+    twitter => '𝕏',
+    telegram => '✈️',
+    direct => '🔗',
+  };
+
+  bool get requiresToken => this == reddit || this == twitter;
 }

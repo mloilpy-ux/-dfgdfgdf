@@ -131,6 +131,8 @@ class _SourceCard extends StatelessWidget {
           backgroundColor: Colors.blue,
           child: Icon(Icons.flutter_dash, color: Colors.white),
         );
+      case SourceType.direct:
+        return const Icon(Icons.link);
       case SourceType.telegram:
         return const CircleAvatar(
           backgroundColor: Colors.cyan,

@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
-import 'package:video_player/video_player.dart';
 import 'package:http/http.dart' as http;
 import 'package:path_provider/path_provider.dart';
 import 'package:flutter/services.dart';
@@ -8,7 +7,7 @@ import 'dart:io';
 import '../providers/content_provider.dart';
 import '../providers/settings_provider.dart';
 import '../models/content_item.dart';
-import '../widgets/furry_loading.dart';
+import '../widgets/media_video_preview.dart';
 import '../services/wallpaper_service.dart';
 import 'package:url_launcher/url_launcher.dart';
 
@@ -48,13 +47,7 @@ class _VideosScreenState extends State<VideosScreen> {
     final provider = context.read<ContentProvider>();
     final settings = context.read<SettingsProvider>();
 
-    var items = provider.items.where((item) => item.isVideo).toList();
-
-    if (!settings.showNsfw) {
-      items = items.where((item) => !item.isNsfw).toList();
-    }
-
-    return items;
+    return provider.itemsFor(MediaKind.video, showNsfw: settings.showNsfw);
   }
 
   Future<void> _downloadImage(ContentItem item) async {
@@ -199,23 +192,23 @@ class _VideosScreenState extends State<VideosScreen> {
 
           return GestureDetector(
             onHorizontalDragEnd: (details) {
-              if (details.primaryVelocity! > 500) {
+              if ((details.primaryVelocity ?? 0) > 500) {
                 _nextImage();
-              } else if (details.primaryVelocity! < -500) {
+              } else if ((details.primaryVelocity ?? 0) < -500) {
                 _previousImage();
               }
             },
             onVerticalDragEnd: (details) {
-              if (details.primaryVelocity! < -500) {
+              if ((details.primaryVelocity ?? 0) < -500) {
                 _saveToFavorites(currentItem);
-              } else if (details.primaryVelocity! > 500) {
+              } else if ((details.primaryVelocity ?? 0) > 500) {
                 _downloadImage(currentItem);
               }
             },
             child: Stack(
               fit: StackFit.expand,
               children: [
-                _VideoPreview(
+                MediaVideoPreview(
                   key: ValueKey(currentItem.mediaUrl),
                   url: currentItem.mediaUrl,
                 ),
@@ -350,68 +343,6 @@ class _VideosScreenState extends State<VideosScreen> {
           );
         },
       ),
-    );
-  }
-}
-
-class _VideoPreview extends StatefulWidget {
-  const _VideoPreview({super.key, required this.url});
-
-  final String url;
-
-  @override
-  State<_VideoPreview> createState() => _VideoPreviewState();
-}
-
-class _VideoPreviewState extends State<_VideoPreview> {
-  VideoPlayerController? _player;
-  late final Future<void> _ready = _initialize();
-
-  Future<void> _initialize() async {
-    final player = VideoPlayerController.networkUrl(Uri.parse(widget.url));
-    _player = player;
-    await player.initialize();
-    if (!mounted) return;
-    await player.setLooping(true);
-    if (mounted) await player.play();
-  }
-
-  @override
-  void dispose() {
-    _player?.dispose();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return FutureBuilder<void>(
-      future: _ready,
-      builder: (context, snapshot) {
-        if (snapshot.hasError) {
-          return const Center(
-            child: Text(
-              'Видео недоступно',
-              style: TextStyle(color: Colors.white),
-            ),
-          );
-        }
-        final player = _player;
-        if (snapshot.connectionState != ConnectionState.done ||
-            player == null) {
-          return const Center(child: FurryLoadingIndicator());
-        }
-
-        return Center(
-          child: AspectRatio(
-            aspectRatio: player.value.aspectRatio,
-            child: GestureDetector(
-              onTap: () =>
-                  player.value.isPlaying ? player.pause() : player.play(),
-              child: VideoPlayer(player),
-            ),
-          ),
-        );
-      },
     );
   }
 }

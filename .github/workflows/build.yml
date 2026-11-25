@@ -13,6 +13,7 @@ permissions:
 jobs:
   build:
     runs-on: ubuntu-24.04
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
       - name: Set up Java
@@ -30,6 +31,18 @@ jobs:
         run: flutter pub get
       - name: Check Dart code
         run: flutter analyze --no-pub --no-fatal-infos --no-fatal-warnings
+      - name: Enable emulator acceleration
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+      - name: Test source flows on Android
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 35
+          arch: x86_64
+          disable-animations: true
+          script: flutter test integration_test --no-pub -d emulator-5554
       - name: Build APK
         run: flutter build apk --release --no-pub
       - name: Upload APK

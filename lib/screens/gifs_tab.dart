@@ -16,7 +16,7 @@ class _GifsTabState extends State<GifsTab> {
   void initState() {
     super.initState();
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      context.read<ContentProvider>().loadContent(onlyGifs: true);
+      context.read<ContentProvider>().loadContent();
     });
   }
 
@@ -26,7 +26,9 @@ class _GifsTabState extends State<GifsTab> {
       builder: (context, contentProvider, settings, _) {
         final items = settings.showNsfw
             ? contentProvider.items.where((item) => item.isGif).toList()
-            : contentProvider.items.where((item) => item.isGif && !item.isNsfw).toList();
+            : contentProvider.items
+                  .where((item) => item.isGif && !item.isNsfw)
+                  .toList();
 
         if (items.isEmpty) {
           return const Center(

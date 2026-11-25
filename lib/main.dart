@@ -10,24 +10,15 @@ import 'theme.dart';
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
-  // Инициализируем провайдеры с хранилищем ДО запуска приложения
-  final loggerProvider = LoggerProvider();
-  final settingsProvider = SettingsProvider();
-  final sourcesProvider = SourcesProvider();
-
-  await Future.wait([
-    settingsProvider.init(), // загружает SharedPreferences
-    sourcesProvider.loadSources(), // загружает SQLite
-  ]);
+  final settings = SettingsProvider();
+  await settings.init();
 
   runApp(
     MultiProvider(
       providers: [
-        // #1: Logger первым — остальные могут логировать при старте
-        ChangeNotifierProvider.value(value: loggerProvider),
-        ChangeNotifierProvider.value(value: settingsProvider),
-        ChangeNotifierProvider.value(value: sourcesProvider),
-
+        ChangeNotifierProvider(create: (_) => LoggerProvider()),
+        ChangeNotifierProvider.value(value: settings),
+        ChangeNotifierProvider(create: (_) => SourcesProvider()),
         ChangeNotifierProvider(create: (_) => ContentProvider()),
       ],
       child: const MyApp(),

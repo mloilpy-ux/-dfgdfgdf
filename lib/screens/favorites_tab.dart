@@ -15,7 +15,7 @@ class _FavoritesTabState extends State<FavoritesTab> {
   void initState() {
     super.initState();
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      context.read<ContentProvider>().loadContent(onlySaved: true);
+      context.read<ContentProvider>().loadSavedItems();
     });
   }
 
@@ -23,7 +23,7 @@ class _FavoritesTabState extends State<FavoritesTab> {
   Widget build(BuildContext context) {
     return Consumer<ContentProvider>(
       builder: (context, provider, _) {
-        final savedItems = provider.items.where((item) => item.isSaved).toList();
+        final savedItems = provider.savedItems;
 
         if (savedItems.isEmpty) {
           return const Center(
