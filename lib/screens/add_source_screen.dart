@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
-import '../providers/source_provider.dart';
+import '../providers/sources_provider.dart';
 import '../models/content_source.dart';
 import '../services/logger_service.dart';
 
@@ -297,9 +297,10 @@ class _AddSourceScreenState extends State<AddSourceScreen> {
         type: _selectedType,
         isActive: true,
         isNsfw: _isNsfw,
+        addedAt: DateTime.now(),
       );
 
-      await context.read<SourceProvider>().addSource(source);
+      await context.read<SourcesProvider>().saveSource(source);
       
       _logger.log('✅ Добавлен источник: ${source.name}');
 

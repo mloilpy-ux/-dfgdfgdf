@@ -25,6 +25,11 @@ class ContentItem {
     this.postUrl,
   });
 
+  bool get isVideo {
+    final path = Uri.tryParse(mediaUrl)?.path.toLowerCase() ?? '';
+    return path.endsWith('.mp4') || path.endsWith('.webm');
+  }
+
   Map<String, dynamic> toMap() {
     return {
       'id': id,

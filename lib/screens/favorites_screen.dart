@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../providers/content_provider.dart';
+import '../providers/settings_provider.dart';
 import '../widgets/content_grid_widget.dart';
 
 class FavoritesScreen extends StatefulWidget {
@@ -15,7 +16,7 @@ class _FavoritesScreenState extends State<FavoritesScreen> {
   void initState() {
     super.initState();
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      context.read<ContentProvider>().loadContent(onlySaved: true);
+      if (mounted) context.read<ContentProvider>().loadSavedItems();
     });
   }
 
@@ -23,11 +24,14 @@ class _FavoritesScreenState extends State<FavoritesScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('❤️ Избранное'),
+        title: const Text('Избранное'),
       ),
       body: Consumer<ContentProvider>(
         builder: (context, provider, _) {
-          final savedItems = provider.items.where((item) => item.isSaved).toList();
+          final showNsfw = context.watch<SettingsProvider>().showNsfw;
+          final savedItems = provider.savedItems
+              .where((item) => showNsfw || !item.isNsfw)
+              .toList();
 
           if (savedItems.isEmpty) {
             return const Center(
@@ -38,7 +42,7 @@ class _FavoritesScreenState extends State<FavoritesScreen> {
                   SizedBox(height: 16),
                   Text('Нет сохранённых артов', style: TextStyle(fontSize: 18)),
                   SizedBox(height: 8),
-                  Text('Свайпните вверх на арте чтобы сохранить'),
+                  Text('Нажми на сердце, чтобы сохранить обои'),
                 ],
               ),
             );

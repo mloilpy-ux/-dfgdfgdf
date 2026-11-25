@@ -15,12 +15,6 @@ class SourcesProvider with ChangeNotifier {
       _sources.where((s) => s.isActive).toList();
   bool get isLoading => _isLoading;
 
-  SourcesProvider() {
-    // БАГ #1 ИСПРАВЛЕН: откладываем до следующего микротаска —
-    // виджеты успевают подписаться до первого notifyListeners()
-    Future.microtask(() => loadSources());
-  }
-
   Future<void> loadSources() async {
     _isLoading = true;
     notifyListeners();

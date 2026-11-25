@@ -16,8 +16,8 @@ void main() async {
   final sourcesProvider = SourcesProvider();
 
   await Future.wait([
-    settingsProvider.init(),   // загружает SharedPreferences
-    sourcesProvider.init(),    // загружает SQLite
+    settingsProvider.init(), // загружает SharedPreferences
+    sourcesProvider.loadSources(), // загружает SQLite
   ]);
 
   runApp(
@@ -28,14 +28,7 @@ void main() async {
         ChangeNotifierProvider.value(value: settingsProvider),
         ChangeNotifierProvider.value(value: sourcesProvider),
 
-        // #3: ContentProvider получает SourcesProvider через ProxyProvider
-        ChangeNotifierProxyProvider<SourcesProvider, ContentProvider>(
-          create: (_) => ContentProvider(),
-          update: (_, sources, content) {
-            content!.updateSources(sources);
-            return content;
-          },
-        ),
+        ChangeNotifierProvider(create: (_) => ContentProvider()),
       ],
       child: const MyApp(),
     ),

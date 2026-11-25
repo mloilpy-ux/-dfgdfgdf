@@ -12,26 +12,26 @@ class HomeScreen extends StatelessWidget {
       appBar: AppBar(title: const Text('🐾 Furry Hub'), actions: [
         IconButton(
           icon: const Icon(Icons.refresh),
-          onPressed: () => context.read<ContentProvider>().fetchContent(),
+          onPressed: () => context.read<ContentProvider>().loadContent(),
         ),
       ]),
       body: Consumer<ContentProvider>(
-        builder: (context, contentProv, child) => contentProv.loading
+        builder: (context, contentProv, child) => contentProv.isLoading
             ? const Center(child: CircularProgressIndicator())
             : GridView.builder(
                 gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
                   crossAxisCount: 2,
                   childAspectRatio: 1,
                 ),
-                itemCount: contentProv.contents.length,
+                itemCount: contentProv.items.length,
                 itemBuilder: (context, i) {
-                  final item = contentProv.contents[i];
+                  final item = contentProv.items[i];
                   return GestureDetector(
                     onTap: () {},  // TODO: FullViewScreen
                     child: Stack(
                       children: [
                         CachedNetworkImage(
-                          imageUrl: item.thumbnailUrl ?? item.imageUrl,
+                          imageUrl: item.thumbnailUrl ?? item.mediaUrl,
                           fit: BoxFit.cover,
                         ),
                         if (item.isNsfw)
