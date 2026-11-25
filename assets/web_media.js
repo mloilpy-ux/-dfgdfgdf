@@ -62,12 +62,12 @@
   }
 
   function redditPageStatus() {
-    if (/^\/(?:login|register)(?:\/|$)/.test(page.pathname)) return 'login';
     if (document.querySelector('form input[name="js_challenge"], form[action*="challenge"]')) return 'challenge';
     if (!document.querySelector('shreddit-post, .thing[data-permalink]')) {
       const text = (document.body?.innerText || '').slice(0, 12000);
       if (/blocked by network security|you[’']ve been blocked|request has been blocked/i.test(text)) return 'blocked';
     }
+    if (/^\/(?:login|register)(?:\/|$)/.test(page.pathname)) return 'login';
     return null;
   }
 

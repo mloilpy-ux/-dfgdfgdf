@@ -121,19 +121,22 @@ class _BrowserSourceScreenState extends State<BrowserSourceScreen> {
   Future<void> _openReddit(String action) async {
     final original = BrowserMedia.httpsUri(widget.source.url);
     if (original == null) return;
-    final current = _page ?? original;
-    final page =
-        current.host == 'reddit.com' || current.host.endsWith('.reddit.com')
-        ? current
-        : original;
-    if (action == 'external') {
-      if (!await launchUrl(page, mode: LaunchMode.externalApplication) &&
-          mounted) {
-        setState(() => _message = 'Не удалось открыть внешний браузер');
+    try {
+      if (action == 'external') {
+        if (await launchUrl(original, mode: LaunchMode.externalApplication))
+          return;
+      } else if (original.host == 'reddit.com' ||
+          original.host.endsWith('.reddit.com')) {
+        await _controller.loadRequest(original.replace(host: action));
+        return;
+      } else {
+        await _controller.loadRequest(original);
+        return;
       }
-    } else if (page.host == 'reddit.com' || page.host.endsWith('.reddit.com')) {
-      await _controller.loadRequest(page.replace(host: action));
+    } catch (_) {
+      // A browser may be unavailable on the device.
     }
+    if (mounted) setState(() => _message = 'Не удалось открыть Reddit');
   }
 
   @override
