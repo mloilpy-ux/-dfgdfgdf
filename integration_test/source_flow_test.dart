@@ -409,11 +409,11 @@ void main() {
       },
     );
     expect(visited.toSet(), sources.activeSources.map((s) => s.id).toSet());
-    expect(visited, hasLength(4));
+    expect(visited, hasLength(7));
     expect(report.values.every((result) => !result.failed), isTrue);
     expect(content.isLoading, isFalse);
     final unattended = await content.parseAllActiveSources(sources);
-    expect(unattended, hasLength(4));
+    expect(unattended, hasLength(7));
     expect(unattended.values.every((result) => result.failed), isTrue);
     await tester.pumpWidget(const SizedBox.shrink());
     content.dispose();
