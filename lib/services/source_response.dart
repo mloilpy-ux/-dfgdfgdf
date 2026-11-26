@@ -23,8 +23,8 @@ Future<http.Response> fetchSource(
   ).timeout(const Duration(seconds: 18));
   if (response.statusCode == 200) return response;
   throw SourceFailure(switch (response.statusCode) {
-    401 => '$service отклонил токен API',
-    402 => '$service требует доступный тариф или баланс API',
+    401 => '$service требует вход',
+    402 => '$service требует платный доступ',
     403 => '$service ограничил доступ к источнику',
     404 => '$service: источник не найден или закрыт',
     429 => '$service ограничил частоту запросов. Попробуйте позже',
@@ -33,7 +33,18 @@ Future<http.Response> fetchSource(
 }
 
 Future<http.Response> _read(http.Client client, http.Request request) async {
-  return http.Response.fromStream(await client.send(request));
+  final response = await client.send(request);
+  final bytes = <int>[];
+  await for (final chunk in response.stream) {
+    if (bytes.length + chunk.length > 4 * 1024 * 1024)
+      throw const SourceFailure('Страница превышает лимит 4 МБ');
+    bytes.addAll(chunk);
+  }
+  return http.Response.bytes(
+    bytes,
+    response.statusCode,
+    headers: response.headers,
+  );
 }
 
 Uri? mediaUri(String? input, [Uri? base]) {

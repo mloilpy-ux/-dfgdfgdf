@@ -25,6 +25,10 @@ final ThemeData wallpaperTheme = ThemeData(
     ),
   ),
   filledButtonTheme: FilledButtonThemeData(
-    style: FilledButton.styleFrom(minimumSize: const Size(0, 48)),
+    style: FilledButton.styleFrom(
+      minimumSize: const Size(0, 48),
+      backgroundColor: const Color(0xFF292333),
+      foregroundColor: const Color(0xFFE6D7FA),
+    ),
   ),
 );

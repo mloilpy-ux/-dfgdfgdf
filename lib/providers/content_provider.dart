@@ -8,6 +8,7 @@ import '../models/content_source.dart';
 import '../services/database_service.dart';
 import '../services/logger_service.dart';
 import '../services/source_response.dart';
+import '../services/page_parser.dart';
 import '../services/web_scraper_service.dart';
 import 'sources_provider.dart';
 
@@ -112,17 +113,10 @@ class ContentProvider with ChangeNotifier {
 
   Future<SourceImport> importSource(
     ContentSource source,
-    SourcesProvider sources,
-  ) {
-    if (source.type.opensInBrowser) {
-      return Future.value(
-        const SourceImport(
-          message: 'Откройте страницу для импорта',
-          failed: true,
-        ),
-      );
-    }
-    return _trackImport(source, () => _runImport(source, sources));
+    SourcesProvider sources, {
+    bool more = false,
+  }) {
+    return _trackImport(source, () => _runImport(source, sources, more: more));
   }
 
   Future<SourceImport> importBrowserMedia(
@@ -160,13 +154,28 @@ class ContentProvider with ChangeNotifier {
 
   Future<SourceImport> _runImport(
     ContentSource source,
-    SourcesProvider sources,
-  ) async {
+    SourcesProvider sources, {
+    bool more = false,
+  }) async {
     try {
+      final cursor = more ? await _db.nextPage(source.id) : null;
+      if (more && cursor == null)
+        return const SourceImport(message: 'Следующих страниц нет');
+      if (source.type.opensInBrowser) {
+        final batch = await PageParser.fetch(
+          _client,
+          source,
+          page: cursor == null ? null : Uri.parse(cursor),
+        );
+        final result = await _saveImport(source, sources, batch.items);
+        if (more || await _db.nextPage(source.id) == null)
+          await _db.setNextPage(source.id, batch.next?.toString());
+        return result;
+      }
       final items = switch (source.type) {
         SourceType.telegram => await WebScraperService(
           _client,
-        ).parseTelegram(source),
+        ).parseTelegram(source, before: cursor),
         SourceType.direct => [
           ContentItem(
             id: 'file_${source.id}',
@@ -179,7 +188,21 @@ class ContentProvider with ChangeNotifier {
         ],
         _ => throw const SourceFailure('Откройте страницу для импорта'),
       };
-      return await _saveImport(source, sources, items);
+      final result = await _saveImport(source, sources, items);
+      if (source.type == SourceType.telegram) {
+        final ids =
+            items
+                .map((i) => int.tryParse(i.id.split('/').last.split('_').first))
+                .whereType<int>()
+                .toList()
+              ..sort();
+        if (more || await _db.nextPage(source.id) == null)
+          await _db.setNextPage(
+            source.id,
+            ids.isEmpty ? null : ids.first.toString(),
+          );
+      }
+      return result;
     } on SourceFailure catch (error) {
       return SourceImport(message: error.message, failed: true);
     } on TimeoutException {

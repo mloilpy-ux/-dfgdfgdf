@@ -1,10 +1,8 @@
+import '../services/media_download.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:cached_network_image/cached_network_image.dart';
-import 'package:http/http.dart' as http;
-import 'package:path_provider/path_provider.dart';
 import 'package:flutter/services.dart';
-import 'dart:io';
 import '../providers/content_provider.dart';
 import '../providers/settings_provider.dart';
 import '../models/content_item.dart';
@@ -58,45 +56,20 @@ class _GifsScreenState extends State<GifsScreen> {
 
   Future<void> _downloadImage(ContentItem item) async {
     if (_isDownloading) return;
-    HapticFeedback.mediumImpact();
     setState(() => _isDownloading = true);
-
     try {
-      final response = await http.get(
-        Uri.parse(item.mediaUrl),
-        headers: item.mediaHeaders,
-      );
-      if (response.statusCode != 200 || response.bodyBytes.isEmpty) {
-        throw const HttpException('GIF unavailable');
-      }
-      final dir =
-          await getExternalStorageDirectory() ??
-          await getApplicationDocumentsDirectory();
-      final extension = item.usesVideoPlayer ? 'mp4' : 'gif';
-      final fileName =
-          'furry_gif_${DateTime.now().millisecondsSinceEpoch}.$extension';
-      final file = File('${dir.path}/$fileName');
-      await file.writeAsBytes(response.bodyBytes);
-
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('💾 $fileName'),
-            duration: const Duration(seconds: 1),
-            backgroundColor: Colors.green,
-          ),
-        );
-      }
-    } catch (e) {
-      if (mounted) {
+      final location = await MediaDownload.save(item);
+      if (mounted)
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('Сохранено: $location')));
+    } catch (_) {
+      if (mounted)
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
-            content: Text('❌'),
-            duration: Duration(seconds: 1),
-            backgroundColor: Colors.red,
+            content: Text('Не удалось скачать медиа. Подробности в журнале.'),
           ),
         );
-      }
     } finally {
       if (mounted) setState(() => _isDownloading = false);
     }

@@ -141,11 +141,7 @@ class SourcesScreen extends StatelessWidget {
             onPressed: content.isLoading || sources.activeSources.isEmpty
                 ? null
                 : () async {
-                    final report = await content.parseAllActiveSources(
-                      sources,
-                      openBrowser: (source) =>
-                          BrowserSourceScreen.open(context, source),
-                    );
+                    final report = await content.parseAllActiveSources(sources);
                     final ok = report.values
                         .where((result) => !result.failed)
                         .length;
@@ -240,6 +236,14 @@ class SourcesScreen extends StatelessWidget {
                           iconColor: Colors.white,
                           tooltip: 'Действия источника',
                           onSelected: (action) => switch (action) {
+                            'adult' =>
+                              sources
+                                  .toggleNsfw(source)
+                                  .then((_) => content.loadContent()),
+                            'more' =>
+                              content
+                                  .importSource(source, sources, more: true)
+                                  .then((r) => _message(context, r.message)),
                             'parse' => _parse(
                               context,
                               source,
@@ -249,6 +253,19 @@ class SourcesScreen extends StatelessWidget {
                             _ => _delete(context, source, sources, content),
                           },
                           itemBuilder: (_) => [
+                            PopupMenuItem(
+                              value: 'adult',
+                              child: Text(
+                                source.isNsfw
+                                    ? 'Снять метку источника 18+'
+                                    : 'Источник содержит 18+',
+                              ),
+                            ),
+                            PopupMenuItem(
+                              value: 'more',
+                              enabled: source.isActive && !importing,
+                              child: const Text('Загрузить следующую порцию'),
+                            ),
                             PopupMenuItem(
                               value: 'parse',
                               enabled: source.isActive && !importing,
@@ -274,7 +291,7 @@ class SourcesScreen extends StatelessWidget {
         onPressed: () => _addSource(context, sources, content),
         icon: const Icon(Icons.add),
         label: const Text('Добавить источник'),
-        backgroundColor: Colors.deepOrange,
+        backgroundColor: const Color(0xFF292333),
       ),
     );
   }

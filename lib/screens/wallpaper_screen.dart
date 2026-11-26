@@ -1,10 +1,13 @@
-import 'dart:io';
+import '../services/media_download.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+import '../services/logger_service.dart';
+import 'experience_screen.dart';
+import 'media_viewer.dart';
+import 'mixes_screen.dart';
 
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:http/http.dart' as http;
-import 'package:path_provider/path_provider.dart';
 import 'package:provider/provider.dart';
 import 'package:url_launcher/url_launcher.dart';
 
@@ -15,13 +18,12 @@ import '../providers/sources_provider.dart';
 import '../services/wallpaper_service.dart';
 import '../theme.dart';
 import 'favorites_screen.dart';
-import 'browser_source_screen.dart';
 import 'gifs_screen.dart';
 import 'logs_screen.dart';
 import 'sources_screen.dart';
 import 'videos_screen.dart';
 
-enum _Destination { gifs, videos, sources, logs, filter }
+enum _Destination { gifs, videos, sources, logs, filter, experience, mixes }
 
 class WallpaperScreen extends StatefulWidget {
   const WallpaperScreen({super.key});
@@ -30,7 +32,8 @@ class WallpaperScreen extends StatefulWidget {
   State<WallpaperScreen> createState() => _WallpaperScreenState();
 }
 
-class _WallpaperScreenState extends State<WallpaperScreen> {
+class _WallpaperScreenState extends State<WallpaperScreen>
+    with WidgetsBindingObserver {
   int _index = 0;
   bool _refreshing = true;
   bool _downloading = false;
@@ -40,7 +43,44 @@ class _WallpaperScreenState extends State<WallpaperScreen> {
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     WidgetsBinding.instance.addPostFrameCallback((_) => _loadOnStart());
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    LoggerService.instance.log('Состояние приложения: ${state.name}');
+    if (state == AppLifecycleState.resumed) _receiveShared();
+    if (state == AppLifecycleState.resumed) {
+      context.read<ContentProvider>().loadContent();
+      context.read<SourcesProvider>().refreshStats();
+    }
+  }
+
+  Future<void> _receiveShared() async {
+    try {
+      final text = await const MethodChannel(
+        'com.furry.wallpaper/set',
+      ).invokeMethod<String>('takeSharedUrl');
+      final url = text == null
+          ? null
+          : RegExp(r'https://[^\s]+').firstMatch(text)?.group(0);
+      if (url != null && mounted) {
+        final sources = context.read<SourcesProvider>();
+        final source = await sources.addSource(url);
+        _showMessage('Источник добавлен из Android');
+        if (mounted)
+          await context.read<ContentProvider>().importSource(source, sources);
+      }
+    } catch (e) {
+      LoggerService.instance.log('Получение ссылки: ${e.runtimeType}');
+    }
   }
 
   Future<void> _loadOnStart() async {
@@ -50,6 +90,12 @@ class _WallpaperScreenState extends State<WallpaperScreen> {
     try {
       await sources.loadSources();
       await content.loadContent();
+      await _receiveShared();
+      final prefs = await SharedPreferences.getInstance();
+      if (mounted && !(prefs.getBool('gesturesSeen') ?? false)) {
+        await showGestures(context);
+        await prefs.setBool('gesturesSeen', true);
+      }
       if (content.items.isEmpty) await content.parseAllActiveSources(sources);
     } catch (_) {
       _showMessage('Не удалось загрузить обои');
@@ -64,10 +110,7 @@ class _WallpaperScreenState extends State<WallpaperScreen> {
     final sources = context.read<SourcesProvider>();
     setState(() => _refreshing = true);
     try {
-      final results = await content.parseAllActiveSources(
-        sources,
-        openBrowser: (source) => BrowserSourceScreen.open(context, source),
-      );
+      final results = await content.parseAllActiveSources(sources);
       if (results.isEmpty) {
         _showMessage('Добавьте или включите источник');
       } else if (results.values.every((result) => result.failed)) {
@@ -98,30 +141,18 @@ class _WallpaperScreenState extends State<WallpaperScreen> {
     if (_downloading) return;
     setState(() => _downloading = true);
     try {
-      final response = await http
-          .get(Uri.parse(item.mediaUrl), headers: item.mediaHeaders)
-          .timeout(const Duration(seconds: 30));
-      if (response.statusCode != 200 || response.bodyBytes.isEmpty) {
-        throw const HttpException('Image unavailable');
-      }
-      final directory =
-          await getExternalStorageDirectory() ??
-          await getApplicationDocumentsDirectory();
-      final mediaType = response.headers['content-type']
-          ?.split(';')
-          .first
-          .trim();
-      final extension = switch (mediaType) {
-        'image/png' => 'png',
-        'image/webp' => 'webp',
-        _ => 'jpg',
-      };
-      final name =
-          'wallpaper_${DateTime.now().millisecondsSinceEpoch}.$extension';
-      await File('${directory.path}/$name').writeAsBytes(response.bodyBytes);
-      _showMessage('$name сохранён в папку приложения');
+      final location = await MediaDownload.save(item);
+      if (mounted)
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('Сохранено: $location')));
     } catch (_) {
-      _showMessage('Не удалось скачать изображение');
+      if (mounted)
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Не удалось скачать медиа. Подробности в журнале.'),
+          ),
+        );
     } finally {
       if (mounted) setState(() => _downloading = false);
     }
@@ -207,6 +238,10 @@ class _WallpaperScreenState extends State<WallpaperScreen> {
 
   Future<void> _select(_Destination destination) async {
     switch (destination) {
+      case _Destination.experience:
+        await _open(const ExperienceScreen());
+      case _Destination.mixes:
+        await _open(const MixesScreen());
       case _Destination.gifs:
         await _open(const GifsScreen());
       case _Destination.videos:
@@ -251,6 +286,14 @@ class _WallpaperScreenState extends State<WallpaperScreen> {
               tooltip: 'Другие разделы',
               onSelected: _select,
               itemBuilder: (_) => [
+                const PopupMenuItem(
+                  value: _Destination.mixes,
+                  child: Text('Миксы'),
+                ),
+                const PopupMenuItem(
+                  value: _Destination.experience,
+                  child: Text('Загрузка и свайпы'),
+                ),
                 const PopupMenuItem(
                   value: _Destination.gifs,
                   child: Text('GIF'),
@@ -350,6 +393,7 @@ class _WallpaperScreenState extends State<WallpaperScreen> {
             children: [
               Expanded(
                 child: GestureDetector(
+                  onDoubleTap: () => _open(MediaViewer(item: item)),
                   onHorizontalDragEnd: (details) {
                     final speed = details.primaryVelocity ?? 0;
                     if (speed.abs() > 200)

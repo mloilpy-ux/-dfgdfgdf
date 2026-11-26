@@ -24,7 +24,7 @@ class DatabaseService {
       return await factory.openDatabase(
         path,
         options: OpenDatabaseOptions(
-          version: 3,
+          version: 4,
           onCreate: (db, _) async {
             await _createTables(db);
             for (final source in ContentSource.getDefaultSources()) {
@@ -41,6 +41,9 @@ class DatabaseService {
   }
 
   Future<void> _createTables(Database db) async {
+    await db.execute(
+      'CREATE TABLE IF NOT EXISTS sync_state (sourceId TEXT PRIMARY KEY, nextPage TEXT)',
+    );
     await db.execute('''
       CREATE TABLE IF NOT EXISTS sources (
         id TEXT PRIMARY KEY, name TEXT NOT NULL, url TEXT NOT NULL,
@@ -136,6 +139,25 @@ class DatabaseService {
     );
   }
 
+  Future<void> setSourceNsfw(String id, bool adult) async {
+    final db = await database;
+    await db.transaction((txn) async {
+      await txn.update(
+        'sources',
+        {'isNsfw': adult ? 1 : 0},
+        where: 'id = ?',
+        whereArgs: [id],
+      );
+      if (adult)
+        await txn.update(
+          'content',
+          {'isNsfw': 1},
+          where: 'sourceId = ?',
+          whereArgs: [id],
+        );
+    });
+  }
+
   Future<void> deleteSource(String id) async {
     final db = await database;
     await db.transaction((txn) async {
@@ -215,6 +237,22 @@ class DatabaseService {
       );
       return added;
     });
+  }
+
+  Future<String?> nextPage(String id) async {
+    final rows = await (await database).query(
+      'sync_state',
+      where: 'sourceId = ?',
+      whereArgs: [id],
+    );
+    return rows.isEmpty ? null : rows.first['nextPage'] as String?;
+  }
+
+  Future<void> setNextPage(String id, String? url) async {
+    await (await database).insert('sync_state', {
+      'sourceId': id,
+      'nextPage': url,
+    }, conflictAlgorithm: ConflictAlgorithm.replace);
   }
 
   Future<void> setSaved(String id, bool saved) async {

@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../providers/logger_provider.dart';
 import 'dart:async';
+import '../services/logger_service.dart';
 
 class LogsScreen extends StatefulWidget {
   const LogsScreen({super.key});
@@ -35,11 +36,23 @@ class _LogsScreenState extends State<LogsScreen> {
       appBar: AppBar(
         title: const Text('📋 Детальные логи'),
         actions: [
+          IconButton(
+            tooltip: 'Экспорт отчётов',
+            icon: const Icon(Icons.ios_share),
+            onPressed: () async {
+              try {
+                await LoggerService.instance.export();
+              } catch (_) {}
+            },
+          ),
           Consumer<LoggerProvider>(
             builder: (context, provider, _) => TextButton.icon(
               onPressed: provider.clearLogs,
               icon: const Icon(Icons.clear_all, color: Colors.white),
-              label: const Text('Очистить', style: TextStyle(color: Colors.white)),
+              label: const Text(
+                'Очистить',
+                style: TextStyle(color: Colors.white),
+              ),
             ),
           ),
         ],
@@ -67,25 +80,32 @@ class _LogsScreenState extends State<LogsScreen> {
               Expanded(
                 child: logs.isEmpty
                     ? const Center(
-                        child: Text('Логи пусты\nДействия будут записываться здесь'),
+                        child: Text(
+                          'Логи пусты\nДействия будут записываться здесь',
+                        ),
                       )
                     : ListView.builder(
                         reverse: true,
                         itemCount: logs.length,
                         itemBuilder: (context, index) {
                           final log = logs[logs.length - 1 - index];
-                          final isError = log.contains('❌');
-                          
+                          final isError = log.contains('ERROR');
+
                           return Container(
-                            margin: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                            margin: const EdgeInsets.symmetric(
+                              horizontal: 8,
+                              vertical: 2,
+                            ),
                             padding: const EdgeInsets.all(12),
                             decoration: BoxDecoration(
-                              color: isError 
+                              color: isError
                                   ? Colors.red.withOpacity(0.1)
                                   : Colors.green.withOpacity(0.05),
                               borderRadius: BorderRadius.circular(8),
                               border: Border.all(
-                                color: isError ? Colors.red.shade200 : Colors.green.shade200,
+                                color: isError
+                                    ? Colors.red.shade200
+                                    : Colors.green.shade200,
                                 width: 1,
                               ),
                             ),
@@ -93,7 +113,9 @@ class _LogsScreenState extends State<LogsScreen> {
                               log,
                               style: TextStyle(
                                 fontSize: 12,
-                                color: isError ? Colors.red.shade900 : Colors.black87,
+                                color: isError
+                                    ? Colors.red.shade200
+                                    : Colors.white70,
                                 fontFamily: 'monospace',
                               ),
                             ),

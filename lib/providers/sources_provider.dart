@@ -60,6 +60,11 @@ class SourcesProvider with ChangeNotifier {
     await refreshStats();
   }
 
+  Future<void> toggleNsfw(ContentSource source) async {
+    await _db.setSourceNsfw(source.id, !source.isNsfw);
+    await refreshStats();
+  }
+
   Future<void> deleteSource(String id) async {
     await _db.deleteSource(id);
     await refreshStats();

@@ -1,9 +1,7 @@
+import '../services/media_download.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
-import 'package:http/http.dart' as http;
-import 'package:path_provider/path_provider.dart';
 import 'package:flutter/services.dart';
-import 'dart:io';
 import '../providers/content_provider.dart';
 import '../providers/settings_provider.dart';
 import '../models/content_item.dart';
@@ -50,40 +48,21 @@ class _VideosScreenState extends State<VideosScreen> {
   }
 
   Future<void> _downloadImage(ContentItem item) async {
-    HapticFeedback.mediumImpact();
     if (_isDownloading) return;
     setState(() => _isDownloading = true);
-
     try {
-      final response = await http.get(
-        Uri.parse(item.mediaUrl),
-        headers: item.mediaHeaders,
-      );
-      final dir = await getExternalStorageDirectory();
-      final fileName =
-          'furry_video_${DateTime.now().millisecondsSinceEpoch}.mp4';
-      final file = File('${dir!.path}/$fileName');
-      await file.writeAsBytes(response.bodyBytes);
-
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('💾 $fileName'),
-            duration: const Duration(seconds: 1),
-            backgroundColor: Colors.green,
-          ),
-        );
-      }
-    } catch (e) {
-      if (mounted) {
+      final location = await MediaDownload.save(item);
+      if (mounted)
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('Сохранено: $location')));
+    } catch (_) {
+      if (mounted)
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
-            content: Text('❌'),
-            duration: Duration(seconds: 1),
-            backgroundColor: Colors.red,
+            content: Text('Не удалось скачать медиа. Подробности в журнале.'),
           ),
         );
-      }
     } finally {
       if (mounted) setState(() => _isDownloading = false);
     }

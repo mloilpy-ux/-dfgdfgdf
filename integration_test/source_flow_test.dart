@@ -1,4 +1,7 @@
 import 'dart:async';
+import 'package:workmanager/workmanager.dart';
+import 'package:furry_content_hub/services/background_sync.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'dart:convert';
 import 'dart:io';
 
@@ -29,6 +32,7 @@ void main() {
   testWidgets('Android creates SQLite tables, opens sources and imports a new channel', (
     tester,
   ) async {
+    await (await SharedPreferences.getInstance()).setBool('gesturesSeen', true);
     final path = join(await getDatabasesPath(), 'source_flow_test.db');
     await deleteDatabase(path);
     final db = DatabaseService(path: path);
@@ -214,6 +218,34 @@ void main() {
     expect(content.selectedSourceId, isNull);
     expect(content.savedItems.single.id, wallpaper.id);
     await tester.pumpWidget(const SizedBox.shrink());
+  });
+
+  testWidgets('Android runs the headless background callback', (tester) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool('backgroundSync', true);
+    await prefs.remove('lastBackgroundSync');
+    final sources = SourcesProvider();
+    await sources.loadSources();
+    for (final source in sources.activeSources) {
+      await sources.toggleSource(source);
+    }
+    await Workmanager().initialize(syncDispatcher);
+    await Workmanager().registerOneOffTask('headless-test', 'media-sync');
+    final clock = Stopwatch()..start();
+    String? completed;
+    while (completed == null && clock.elapsed < const Duration(seconds: 90)) {
+      await tester.pump(const Duration(seconds: 1));
+      await prefs.reload();
+      completed = prefs.getString('lastBackgroundSync');
+    }
+    expect(
+      completed,
+      isNotNull,
+      reason: 'Headless worker must execute outside the UI isolate',
+    );
+    await Workmanager().cancelAll();
+    await prefs.setBool('backgroundSync', false);
+    sources.dispose();
   });
 
   testWidgets('SQLite upgrades previous installs and keeps saved media', (

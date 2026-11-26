@@ -12,11 +12,18 @@ class WebScraperService {
 
   WebScraperService(this._client);
 
-  Future<List<ContentItem>> parseTelegram(ContentSource source) async {
+  Future<List<ContentItem>> parseTelegram(
+    ContentSource source, {
+    String? before,
+  }) async {
     final channel = Uri.parse(
       ContentSource.fromUrl(source.url).url,
     ).pathSegments.first;
-    final page = Uri.https('t.me', '/s/$channel');
+    final page = Uri.https(
+      't.me',
+      '/s/$channel',
+      before == null ? null : {'before': before},
+    );
     final response = await fetchSource(
       _client,
       page,

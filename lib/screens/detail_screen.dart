@@ -3,6 +3,7 @@ import 'package:cached_network_image/cached_network_image.dart';
 import 'package:provider/provider.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../models/content_item.dart';
+import 'media_viewer.dart';
 import '../providers/content_provider.dart';
 import '../widgets/media_video_preview.dart';
 
@@ -22,6 +23,14 @@ class DetailScreen extends StatelessWidget {
       appBar: AppBar(
         title: const Text('Детали'),
         actions: [
+          IconButton(
+            tooltip: 'Увеличить',
+            icon: const Icon(Icons.zoom_in),
+            onPressed: () => Navigator.push(
+              context,
+              MaterialPageRoute(builder: (_) => MediaViewer(item: item)),
+            ),
+          ),
           IconButton(
             icon: Icon(
               current.isSaved ? Icons.favorite : Icons.favorite_border,
