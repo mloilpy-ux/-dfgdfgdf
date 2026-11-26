@@ -10,7 +10,11 @@ dependencies:
   flutter:
     sdk: flutter
 
-  workmanager: 0.10.10
+  workmanager: 0.9.0+3
+  # Keep the federated implementations compatible with Flutter 3.35.
+  workmanager_android: 0.9.0+2
+  workmanager_apple: 0.9.1+2
+  workmanager_platform_interface: 0.9.1+1
   flutter_cache_manager: ^3.4.1
   provider: ^6.1.1
   sqflite: ^2.3.0
