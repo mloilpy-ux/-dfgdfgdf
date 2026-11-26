@@ -125,6 +125,13 @@ class _WallpaperScreenState extends State<WallpaperScreen>
   }
 
   void _move(List<ContentItem> items, int index, int offset) {
+    if (index >= items.length - 3 &&
+        !context.read<ContentProvider>().isLoading) {
+      context.read<ContentProvider>().parseAllActiveSources(
+        context.read<SourcesProvider>(),
+        more: true,
+      );
+    }
     if (items.length < 2) return;
     HapticFeedback.selectionClick();
     setState(() => _index = (index + offset) % items.length);

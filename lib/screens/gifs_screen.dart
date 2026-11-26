@@ -1,3 +1,4 @@
+import 'media_viewer.dart';
 import '../services/media_download.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
@@ -187,10 +188,14 @@ class _GifsScreenState extends State<GifsScreen> {
           final currentItem = items[_currentIndex.clamp(0, items.length - 1)];
 
           return GestureDetector(
+            onDoubleTap: () => Navigator.push(
+              context,
+              MaterialPageRoute(builder: (_) => MediaViewer(item: currentItem)),
+            ),
             onHorizontalDragEnd: (details) {
-              if ((details.primaryVelocity ?? 0) > 500) {
+              if ((details.primaryVelocity ?? 0) < -500) {
                 _nextImage();
-              } else if ((details.primaryVelocity ?? 0) < -500) {
+              } else if ((details.primaryVelocity ?? 0) > 500) {
                 _previousImage();
               }
             },

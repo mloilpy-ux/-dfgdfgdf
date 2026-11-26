@@ -88,6 +88,7 @@ class ContentProvider with ChangeNotifier {
   Future<Map<String, SourceImport>> parseAllActiveSources(
     SourcesProvider sources, {
     Future<SourceImport> Function(ContentSource)? openBrowser,
+    bool more = false,
   }) async {
     if (_refreshingAll) return {};
     _refreshingAll = true;
@@ -97,7 +98,7 @@ class ContentProvider with ChangeNotifier {
       for (final source in sources.activeSources) {
         final result = source.type.opensInBrowser && openBrowser != null
             ? await openBrowser(source)
-            : await importSource(source, sources);
+            : await importSource(source, sources, more: more);
         report[source.id] = result;
         _results[source.id] = result;
       }
