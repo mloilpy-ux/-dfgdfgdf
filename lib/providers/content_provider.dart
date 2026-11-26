@@ -54,6 +54,15 @@ class ContentProvider with ChangeNotifier {
   }
 
   SourceImport? resultFor(String sourceId) => _results[sourceId];
+  void clearResult(String sourceId) {
+    _results.remove(sourceId);
+  }
+
+  void reportBrowserFailure(String sourceId, String message) {
+    _results[sourceId] = SourceImport(message: message, failed: true);
+    notifyListeners();
+  }
+
   bool isImporting(String sourceId) => _inFlight.containsKey(sourceId);
 
   Future<void> loadContent() async {
@@ -76,15 +85,20 @@ class ContentProvider with ChangeNotifier {
   }
 
   Future<Map<String, SourceImport>> parseAllActiveSources(
-    SourcesProvider sources,
-  ) async {
+    SourcesProvider sources, {
+    Future<SourceImport> Function(ContentSource)? openBrowser,
+  }) async {
     if (_refreshingAll) return {};
     _refreshingAll = true;
     notifyListeners();
     try {
       final report = <String, SourceImport>{};
-      for (final source in sources.autoRefreshSources) {
-        report[source.id] = await importSource(source, sources);
+      for (final source in sources.activeSources) {
+        final result = source.type.opensInBrowser && openBrowser != null
+            ? await openBrowser(source)
+            : await importSource(source, sources);
+        report[source.id] = result;
+        _results[source.id] = result;
       }
       _logger.log(
         'Обновлено источников: ${report.values.where((result) => !result.failed).length} из ${report.length}',

@@ -136,12 +136,16 @@ class SourcesScreen extends StatelessWidget {
         title: const Text('Источники'),
         actions: [
           IconButton(
-            tooltip: 'Обновить Telegram и медиафайлы',
+            tooltip: 'Обновить все активные источники',
             icon: const Icon(Icons.refresh),
-            onPressed: content.isLoading || sources.autoRefreshSources.isEmpty
+            onPressed: content.isLoading || sources.activeSources.isEmpty
                 ? null
                 : () async {
-                    final report = await content.parseAllActiveSources(sources);
+                    final report = await content.parseAllActiveSources(
+                      sources,
+                      openBrowser: (source) =>
+                          BrowserSourceScreen.open(context, source),
+                    );
                     final ok = report.values
                         .where((result) => !result.failed)
                         .length;

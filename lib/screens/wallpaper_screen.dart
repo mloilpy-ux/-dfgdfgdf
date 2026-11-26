@@ -15,6 +15,7 @@ import '../providers/sources_provider.dart';
 import '../services/wallpaper_service.dart';
 import '../theme.dart';
 import 'favorites_screen.dart';
+import 'browser_source_screen.dart';
 import 'gifs_screen.dart';
 import 'logs_screen.dart';
 import 'sources_screen.dart';
@@ -63,9 +64,12 @@ class _WallpaperScreenState extends State<WallpaperScreen> {
     final sources = context.read<SourcesProvider>();
     setState(() => _refreshing = true);
     try {
-      final results = await content.parseAllActiveSources(sources);
+      final results = await content.parseAllActiveSources(
+        sources,
+        openBrowser: (source) => BrowserSourceScreen.open(context, source),
+      );
       if (results.isEmpty) {
-        _showMessage('Откройте веб-источник или добавьте канал Telegram');
+        _showMessage('Добавьте или включите источник');
       } else if (results.values.every((result) => result.failed)) {
         _showMessage(
           'Не удалось обновить источники. Подробности в разделе «Источники»',

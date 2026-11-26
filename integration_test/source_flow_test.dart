@@ -389,6 +389,32 @@ void main() {
       content.items.where((item) => item.id.startsWith('web_')),
       hasLength(4),
     );
+    // Regression: disabling Telegram must not make refresh skip every source.
+    for (final telegram
+        in sources.activeSources
+            .where((s) => s.type == SourceType.telegram)
+            .toList()) {
+      await sources.toggleSource(telegram);
+    }
+    final visited = <String>[];
+    final report = await content.parseAllActiveSources(
+      sources,
+      openBrowser: (source) async {
+        visited.add(source.id);
+        return content.importBrowserMedia(
+          source,
+          sources,
+          content.items.where((item) => item.sourceId == source.id).toList(),
+        );
+      },
+    );
+    expect(visited.toSet(), sources.activeSources.map((s) => s.id).toSet());
+    expect(visited, hasLength(4));
+    expect(report.values.every((result) => !result.failed), isTrue);
+    expect(content.isLoading, isFalse);
+    final unattended = await content.parseAllActiveSources(sources);
+    expect(unattended, hasLength(4));
+    expect(unattended.values.every((result) => result.failed), isTrue);
     await tester.pumpWidget(const SizedBox.shrink());
     content.dispose();
     sources.dispose();
