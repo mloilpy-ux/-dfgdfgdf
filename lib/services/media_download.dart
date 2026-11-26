@@ -26,6 +26,11 @@ class MediaDownload {
         'image/webp' => 'webp',
         'video/webm' => 'webm',
         'video/mp4' => 'mp4',
+        'video/quicktime' => 'mov',
+        'video/x-m4v' => 'm4v',
+        'image/avif' => 'avif',
+        'image/bmp' => 'bmp',
+        'image/heic' => 'heic',
         _ => 'jpg',
       };
       final name = 'furry_${DateTime.now().millisecondsSinceEpoch}.$ext';

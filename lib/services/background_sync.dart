@@ -3,7 +3,8 @@ import 'package:flutter/widgets.dart';
 import 'package:workmanager/workmanager.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:flutter_cache_manager/flutter_cache_manager.dart';
-import '../models/content_item.dart';
+import 'package:http/http.dart' as http;
+import 'source_response.dart';
 import '../providers/content_provider.dart';
 import '../providers/sources_provider.dart';
 import 'logger_service.dart';
@@ -32,18 +33,44 @@ void syncDispatcher() {
       }
       if (active.isNotEmpty)
         await prefs.setInt('syncOffset', (offset + 6) % active.length);
-      // Prefetch a small image batch; videos remain on demand to limit traffic.
-      for (final item
-          in content.items
-              .where((i) => i.kind == MediaKind.image && !i.isNsfw)
-              .take(8)) {
-        try {
-          await DefaultCacheManager()
-              .downloadFile(item.mediaUrl, authHeaders: item.mediaHeaders)
-              .timeout(const Duration(seconds: 12));
-        } catch (e) {
-          log.log('Предзагрузка: ${e.runtimeType}', isError: true);
+      // Share the image/video cache with the UI. Bound network and RAM per run.
+      final client = http.Client();
+      var budget = 24 * 1024 * 1024;
+      try {
+        for (final item
+            in content.items
+                .where((i) => !i.isNsfw || (prefs.getBool('showNsfw') ?? false))
+                .take(8)) {
+          if (budget <= 0) break;
+          try {
+            if (await DefaultCacheManager().getFileFromCache(item.mediaUrl) !=
+                null)
+              continue;
+            final response = await fetchSource(
+              client,
+              Uri.parse(item.mediaUrl),
+              service: 'Предзагрузка',
+              headers: item.mediaHeaders,
+              maxBytes: budget < 6 * 1024 * 1024 ? budget : 6 * 1024 * 1024,
+            );
+            final type = response.headers['content-type'] ?? '';
+            if (!type.startsWith('image/') && !type.startsWith('video/'))
+              continue;
+            budget -= response.bodyBytes.length;
+            await DefaultCacheManager().putFile(
+              item.mediaUrl,
+              response.bodyBytes,
+              maxAge: const Duration(days: 7),
+            );
+            log.log(
+              'Предзагрузка ${item.kind.name}: ${response.bodyBytes.length} байт',
+            );
+          } catch (e) {
+            log.log('Предзагрузка: $e', isError: true);
+          }
         }
+      } finally {
+        client.close();
       }
       log.log('Фоновая загрузка: завершена');
       await prefs.setString(

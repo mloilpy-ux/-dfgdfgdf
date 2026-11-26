@@ -13,6 +13,7 @@ Future<http.Response> fetchSource(
   Uri uri, {
   required String service,
   Map<String, String> headers = const {},
+  int maxBytes = 4 * 1024 * 1024,
 }) async {
   final request = http.Request('GET', uri)
     ..headers.addAll(headers)
@@ -20,6 +21,7 @@ Future<http.Response> fetchSource(
   final response = await _read(
     client,
     request,
+    maxBytes,
   ).timeout(const Duration(seconds: 18));
   if (response.statusCode == 200) return response;
   throw SourceFailure(switch (response.statusCode) {
@@ -32,12 +34,16 @@ Future<http.Response> fetchSource(
   });
 }
 
-Future<http.Response> _read(http.Client client, http.Request request) async {
+Future<http.Response> _read(
+  http.Client client,
+  http.Request request,
+  int maxBytes,
+) async {
   final response = await client.send(request);
   final bytes = <int>[];
   await for (final chunk in response.stream) {
-    if (bytes.length + chunk.length > 4 * 1024 * 1024)
-      throw const SourceFailure('Страница превышает лимит 4 МБ');
+    if (bytes.length + chunk.length > maxBytes)
+      throw const SourceFailure('Ответ превышает лимит размера');
     bytes.addAll(chunk);
   }
   return http.Response.bytes(

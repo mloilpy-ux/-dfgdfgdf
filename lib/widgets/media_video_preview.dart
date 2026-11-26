@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_cache_manager/flutter_cache_manager.dart';
 import 'package:video_player/video_player.dart';
 
 import 'furry_loading.dart';
@@ -24,10 +25,14 @@ class MediaVideoPreviewState extends State<MediaVideoPreview> {
   late final Future<void> _ready = _initialize();
 
   Future<void> _initialize() async {
-    final player = VideoPlayerController.networkUrl(
-      Uri.parse(widget.url),
-      httpHeaders: widget.headers,
-    );
+    final cached = await DefaultCacheManager().getFileFromCache(widget.url);
+    if (!mounted) return;
+    final player = cached != null && await cached.file.exists()
+        ? VideoPlayerController.file(cached.file)
+        : VideoPlayerController.networkUrl(
+            Uri.parse(widget.url),
+            httpHeaders: widget.headers,
+          );
     _player = player;
     await player.initialize();
     if (!mounted) return;
