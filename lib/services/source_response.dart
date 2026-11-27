@@ -1,4 +1,6 @@
+import 'dart:async';
 import 'package:http/http.dart' as http;
+import 'logger_service.dart';
 
 class SourceFailure implements Exception {
   const SourceFailure(this.message);
@@ -14,15 +16,45 @@ Future<http.Response> fetchSource(
   required String service,
   Map<String, String> headers = const {},
   int maxBytes = 4 * 1024 * 1024,
+  Duration timeout = const Duration(seconds: 18),
 }) async {
   final request = http.Request('GET', uri)
     ..headers.addAll(headers)
     ..followRedirects = !headers.containsKey('Authorization');
-  final response = await _read(
-    client,
-    request,
-    maxBytes,
-  ).timeout(const Duration(seconds: 18));
+  final clock = Stopwatch()..start();
+  var stage = 'ожидание HTTP-заголовков';
+  LoggerService.instance.log(
+    '$service: запрос к ${uri.host}, лимит ${timeout.inSeconds} с',
+  );
+  late http.Response response;
+  try {
+    response = await _read(
+      client,
+      request,
+      maxBytes,
+      onHeaders: (status) {
+        stage = 'чтение тела ответа';
+        LoggerService.instance.log(
+          '$service: HTTP $status, заголовки за ${clock.elapsedMilliseconds} мс',
+        );
+      },
+    ).timeout(timeout);
+  } on TimeoutException {
+    LoggerService.instance.log(
+      '$service: тайм-аут, этап: $stage, ${clock.elapsedMilliseconds} мс',
+      isError: true,
+    );
+    rethrow;
+  } on http.ClientException catch (error) {
+    LoggerService.instance.log(
+      '$service: сетевая ошибка, этап: $stage, ${clock.elapsedMilliseconds} мс: $error',
+      isError: true,
+    );
+    rethrow;
+  }
+  LoggerService.instance.log(
+    '$service: получено ${response.bodyBytes.length} байт за ${clock.elapsedMilliseconds} мс',
+  );
   if (response.statusCode == 200) return response;
   throw SourceFailure(switch (response.statusCode) {
     401 => '$service требует вход',
@@ -37,9 +69,11 @@ Future<http.Response> fetchSource(
 Future<http.Response> _read(
   http.Client client,
   http.Request request,
-  int maxBytes,
-) async {
+  int maxBytes, {
+  required void Function(int) onHeaders,
+}) async {
   final response = await client.send(request);
+  onHeaders(response.statusCode);
   final bytes = <int>[];
   await for (final chunk in response.stream) {
     if (bytes.length + chunk.length > maxBytes)

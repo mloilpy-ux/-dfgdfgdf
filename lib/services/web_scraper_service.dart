@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:async';
 
 import 'package:html/parser.dart' as html;
 import 'package:http/http.dart' as http;
@@ -6,6 +7,7 @@ import 'package:http/http.dart' as http;
 import '../models/content_item.dart';
 import '../models/content_source.dart';
 import 'source_response.dart';
+import 'logger_service.dart';
 
 class WebScraperService {
   final http.Client _client;
@@ -24,12 +26,7 @@ class WebScraperService {
       '/s/$channel',
       before == null ? null : {'before': before},
     );
-    final response = await fetchSource(
-      _client,
-      page,
-      service: 'Telegram',
-      headers: {'Accept': 'text/html'},
-    );
+    final response = await _fetchPage(page);
     final document = html.parse(utf8.decode(response.bodyBytes));
     if (document.querySelector(
           '.tgme_channel_history, .tgme_widget_message[data-post]',
@@ -98,6 +95,34 @@ class WebScraperService {
       }
     }
     return items;
+  }
+
+  Future<http.Response> _fetchPage(Uri page) async {
+    for (var attempt = 1; attempt <= 2; attempt++) {
+      try {
+        LoggerService.instance.log('Telegram: попытка $attempt/2');
+        return await fetchSource(
+          _client,
+          page,
+          service: 'Telegram',
+          headers: const {'Accept': 'text/html'},
+          timeout: const Duration(seconds: 30),
+        );
+      } on TimeoutException {
+        if (attempt == 2)
+          throw const SourceFailure(
+            'Telegram: веб-лента не ответила после двух попыток. Проверьте t.me/s/имя_канала в браузере телефона; затем повторите загрузку.',
+          );
+      } on http.ClientException {
+        if (attempt == 2)
+          throw const SourceFailure(
+            'Telegram: не удалось подключиться к веб-ленте после двух попыток. Проверьте доступ к t.me в браузере телефона.',
+          );
+      }
+      // Retry transient transport failures only; HTTP denials are never retried.
+      await Future<void>.delayed(const Duration(milliseconds: 500));
+    }
+    throw StateError('Unreachable retry state');
   }
 
   static final _background = RegExp(

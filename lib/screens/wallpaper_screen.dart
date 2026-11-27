@@ -301,14 +301,7 @@ class _WallpaperScreenState extends State<WallpaperScreen>
                   value: _Destination.experience,
                   child: Text('Загрузка и свайпы'),
                 ),
-                const PopupMenuItem(
-                  value: _Destination.gifs,
-                  child: Text('GIF'),
-                ),
-                const PopupMenuItem(
-                  value: _Destination.videos,
-                  child: Text('Видео'),
-                ),
+
                 CheckedPopupMenuItem(
                   value: _Destination.sources,
                   checked: content.selectedSourceId != null,
@@ -326,6 +319,29 @@ class _WallpaperScreenState extends State<WallpaperScreen>
               ],
             ),
             const SizedBox(width: 6),
+          ],
+        ),
+        bottomNavigationBar: NavigationBar(
+          selectedIndex: 0,
+          backgroundColor: wallpaperTheme.colorScheme.surface,
+          indicatorColor: wallpaperTheme.colorScheme.surfaceContainerLow,
+          onDestinationSelected: (index) {
+            if (index == 1) _select(_Destination.gifs);
+            if (index == 2) _select(_Destination.videos);
+          },
+          destinations: const [
+            NavigationDestination(
+              icon: Icon(Icons.image_outlined),
+              label: 'Картинки',
+            ),
+            NavigationDestination(
+              icon: Icon(Icons.gif_box_outlined),
+              label: 'GIF',
+            ),
+            NavigationDestination(
+              icon: Icon(Icons.play_circle_outline),
+              label: 'Видео',
+            ),
           ],
         ),
         body: SafeArea(

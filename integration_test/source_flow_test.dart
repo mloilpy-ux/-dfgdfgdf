@@ -186,9 +186,8 @@ void main() {
       (widget) => widget is RawImage && widget.image != null,
     );
     await _waitFor(tester, renderedImage);
-    await tester.tap(find.byTooltip('Другие разделы'));
     await _waitFor(tester, find.text('GIF'));
-    await tester.tap(_menuItem('GIF'));
+    await tester.tap(find.text('GIF'));
     await _waitFor(
       tester,
       find.descendant(of: find.byType(GifsScreen), matching: renderedImage),
@@ -196,9 +195,8 @@ void main() {
     expect(find.text('Нет GIF'), findsNothing);
     await tester.binding.handlePopRoute();
     await _waitFor(tester, find.text('Установить обои'));
-    await tester.tap(find.byTooltip('Другие разделы'));
     await _waitFor(tester, find.text('Видео'));
-    await tester.tap(_menuItem('Видео'));
+    await tester.tap(find.text('Видео'));
     await _waitFor(tester, find.byType(VideoPlayer));
     await tester.binding.handlePopRoute();
     await _waitFor(tester, find.text('Установить обои'));
