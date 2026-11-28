@@ -3,6 +3,7 @@ import 'package:sqflite/sqflite.dart';
 
 import '../models/content_item.dart';
 import '../models/content_source.dart';
+import 'media_quality.dart';
 
 class DatabaseService {
   static final instance = DatabaseService();
@@ -204,7 +205,7 @@ class DatabaseService {
         final values = item.toMap();
         final existing = await txn.query(
           'content',
-          columns: ['isSaved'],
+          columns: ['isSaved', 'mediaUrl'],
           where: 'id = ? AND sourceId = ?',
           whereArgs: [item.id, source.id],
           limit: 1,
@@ -222,6 +223,7 @@ class DatabaseService {
           added++;
         } else {
           values.remove('isSaved');
+          values['mediaUrl'] = preferredMediaUrl(existing.single['mediaUrl'] as String, item.mediaUrl);
           await txn.update(
             'content',
             values,

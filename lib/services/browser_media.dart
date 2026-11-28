@@ -5,6 +5,7 @@ import 'package:flutter/services.dart';
 
 import '../models/content_item.dart';
 import '../models/content_source.dart';
+import 'media_quality.dart';
 
 class BrowserMedia {
   static Future<String> loadScript() =>
@@ -61,6 +62,8 @@ class BrowserMedia {
           .firstOrNull;
       if (url == null || kind == null) continue;
       final key = _mediaKey(url);
+      final previous = items[key];
+      if (previous != null && preferredMediaUrl(previous.mediaUrl, url.toString()) != url.toString()) continue;
       final id = sha256.convert(utf8.encode('${source.id}\u0000$key'));
       final title = candidate['title'];
       final post = httpsUri(candidate['post']) ?? page;

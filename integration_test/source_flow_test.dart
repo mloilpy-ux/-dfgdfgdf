@@ -304,6 +304,34 @@ void main() {
     await deleteDatabase(path);
   });
 
+
+  testWidgets('SQLite upgrades a preview and never downgrades the saved original', (tester) async {
+    final path = join(await getDatabasesPath(), 'media_quality_test.db');
+    await deleteDatabase(path);
+    final db = DatabaseService(path: path);
+    addTearDown(() async {
+      await (await db.database).close();
+      await deleteDatabase(path);
+    });
+    final source = await db.insertSource(ContentSource.fromUrl('r/quality_test'));
+    List<ContentItem> batch(String url) => BrowserMedia.fromPage(
+      jsonEncode({'page': source.url, 'items': [
+        {'url': url, 'kind': 'image', 'title': 'Artwork'}
+      ]}), source, Uri.parse(source.url));
+    const small = 'https://preview.redd.it/art.jpg?width=108&token=old';
+    const original = 'https://i.redd.it/art.jpg';
+    await db.importContent(source, batch(small));
+    final id = (await db.getContent()).single.id;
+    await db.setSaved(id, true);
+    await db.importContent(source, batch(original));
+    await db.importContent(source, batch(small));
+    final stored = await db.getContent();
+    expect(stored, hasLength(1));
+    expect(stored.single.mediaUrl, original);
+    expect(stored.single.id, id);
+    expect(stored.single.isSaved, isTrue);
+  });
+
   testWidgets('Android WebView imports page media without API tokens', (
     tester,
   ) async {
