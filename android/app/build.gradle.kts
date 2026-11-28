@@ -4,26 +4,33 @@ plugins {
     id("dev.flutter.flutter-gradle-plugin")
 }
 
+val parallelInstall = providers.gradleProperty("parallelInstall").orNull == "true"
+
 android {
     namespace = "com.example.furry_content_hub"
     compileSdk = 36
     ndkVersion = "27.0.12077973"
 
     compileOptions {
-        sourceCompatibility = JavaVersion.VERSION_1_8
-        targetCompatibility = JavaVersion.VERSION_1_8
+        sourceCompatibility = JavaVersion.VERSION_17
+        targetCompatibility = JavaVersion.VERSION_17
     }
 
     kotlinOptions {
-        jvmTarget = "1.8"
+        jvmTarget = "17"
     }
 
     defaultConfig {
-        applicationId = "com.example.furry_content_hub"
-        minSdk = 21
+        applicationId = if (parallelInstall) {
+            "com.example.furry_content_hub.preview.v${flutter.versionCode}"
+        } else {
+            "com.example.furry_content_hub"
+        }
+        manifestPlaceholders["hubAppLabel"] = if (parallelInstall) "Furry Hub (тест)" else "Furry Hub"
+        minSdk = 23
         targetSdk = 36
-        versionCode = 1
-        versionName = "1.0"
+        versionCode = flutter.versionCode
+        versionName = flutter.versionName
     }
 
     buildTypes {

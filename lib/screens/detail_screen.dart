@@ -3,7 +3,9 @@ import 'package:cached_network_image/cached_network_image.dart';
 import 'package:provider/provider.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../models/content_item.dart';
+import 'media_viewer.dart';
 import '../providers/content_provider.dart';
+import '../widgets/media_video_preview.dart';
 
 class DetailScreen extends StatelessWidget {
   final ContentItem item;
@@ -12,14 +14,29 @@ class DetailScreen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final content = context.watch<ContentProvider>();
+    final current =
+        content.savedItems.where((entry) => entry.id == item.id).firstOrNull ??
+        content.items.where((entry) => entry.id == item.id).firstOrNull ??
+        item.copyWith(isSaved: false);
     return Scaffold(
       appBar: AppBar(
         title: const Text('Детали'),
         actions: [
           IconButton(
-            icon: Icon(item.isSaved ? Icons.favorite : Icons.favorite_border),
+            tooltip: 'Увеличить',
+            icon: const Icon(Icons.zoom_in),
+            onPressed: () => Navigator.push(
+              context,
+              MaterialPageRoute(builder: (_) => MediaViewer(item: item)),
+            ),
+          ),
+          IconButton(
+            icon: Icon(
+              current.isSaved ? Icons.favorite : Icons.favorite_border,
+            ),
             onPressed: () {
-              context.read<ContentProvider>().toggleSave(item);
+              content.toggleSave(current);
             },
           ),
           if (item.postUrl != null)
@@ -33,17 +50,29 @@ class DetailScreen extends StatelessWidget {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            CachedNetworkImage(
-              imageUrl: item.mediaUrl,
-              fit: BoxFit.contain,
-              width: double.infinity,
-              placeholder: (_, __) => const Center(
-                child: Padding(
-                  padding: EdgeInsets.all(64),
-                  child: CircularProgressIndicator(),
+            if (item.usesVideoPlayer)
+              SizedBox(
+                height: 300,
+                width: double.infinity,
+                child: MediaVideoPreview(
+                  url: item.mediaUrl,
+                  muted: item.isGif,
+                  headers: item.mediaHeaders,
+                ),
+              )
+            else
+              CachedNetworkImage(
+                imageUrl: item.mediaUrl,
+                httpHeaders: item.mediaHeaders,
+                fit: BoxFit.contain,
+                width: double.infinity,
+                placeholder: (_, __) => const Center(
+                  child: Padding(
+                    padding: EdgeInsets.all(64),
+                    child: CircularProgressIndicator(),
+                  ),
                 ),
               ),
-            ),
             Padding(
               padding: const EdgeInsets.all(16),
               child: Column(
@@ -62,8 +91,8 @@ class DetailScreen extends StatelessWidget {
                   const SizedBox(height: 8),
                   Row(
                     children: [
-                      if (item.isGif)
-                        const Chip(label: Text('GIF')),
+                      if (item.isGif) const Chip(label: Text('GIF')),
+                      if (item.isVideo) const Chip(label: Text('Видео')),
                       if (item.isNsfw)
                         const Padding(
                           padding: EdgeInsets.only(left: 8),

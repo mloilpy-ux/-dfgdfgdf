@@ -1,18 +1,284 @@
+import 'media_viewer.dart';
+import '../services/media_download.dart';
+import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
+import 'package:flutter/services.dart';
+import '../providers/content_provider.dart';
+import '../providers/settings_provider.dart';
+import '../models/content_item.dart';
+import '../widgets/media_video_preview.dart';
+import 'package:url_launcher/url_launcher.dart';
+
+class VideosScreen extends StatefulWidget {
+  const VideosScreen({super.key});
+
+  @override
+  State<VideosScreen> createState() => _VideosScreenState();
+}
+
+class _VideosScreenState extends State<VideosScreen> {
+  int _currentIndex = 0;
+  bool _isDownloading = false;
+  final List<int> _history = [];
+
+  void _nextImage() {
+    HapticFeedback.selectionClick();
+
+    final items = _getFilteredItems();
+    if (items.isEmpty) return;
+
+    _history.add(_currentIndex.clamp(0, items.length - 1));
+
+    setState(() {
+      _currentIndex = (_currentIndex + 1) % items.length;
+    });
+  }
+
+  void _previousImage() {
+    if (_history.isEmpty) return;
+    setState(() {
+      _currentIndex = _history.removeLast();
+    });
+  }
+
   List<ContentItem> _getFilteredItems() {
     final provider = context.read<ContentProvider>();
     final settings = context.read<SettingsProvider>();
 
-    // Видео: MP4/WEBM файлы (не GIF)
-    var items = provider.items.where((item) {
-      final url = item.mediaUrl.toLowerCase();
-      return url.contains('.mp4') || url.contains('.webm');
-    }).toList();
-
-    if (!settings.showNsfw) {
-      items = items.where((item) => !item.isNsfw).toList();
-    }
-
-    items = items.where((item) => !_errorUrls.contains(item.mediaUrl)).toList();
-
-    return items;
+    return provider.itemsFor(MediaKind.video, showNsfw: settings.showNsfw);
   }
+
+  Future<void> _downloadImage(ContentItem item) async {
+    if (_isDownloading) return;
+    setState(() => _isDownloading = true);
+    try {
+      final location = await MediaDownload.save(item);
+      if (mounted)
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('Сохранено: $location')));
+    } catch (_) {
+      if (mounted)
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Не удалось скачать медиа. Подробности в журнале.'),
+          ),
+        );
+    } finally {
+      if (mounted) setState(() => _isDownloading = false);
+    }
+  }
+
+  Future<void> _saveToFavorites(ContentItem item) async {
+    HapticFeedback.lightImpact();
+
+    final contentProvider = context.read<ContentProvider>();
+    await contentProvider.toggleSave(item);
+
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(item.isSaved ? '💜' : '💔'),
+          duration: const Duration(milliseconds: 500),
+          backgroundColor: item.isSaved ? Colors.pink : Colors.grey,
+        ),
+      );
+    }
+  }
+
+  String _getSourceIcon(String sourceId) {
+    if (sourceId.contains('reddit')) return '🔴';
+    if (sourceId.contains('twitter')) return '🐦';
+    if (sourceId.contains('telegram')) return '✈️';
+    return '🌐';
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: Colors.black,
+      body: Consumer2<ContentProvider, SettingsProvider>(
+        builder: (context, contentProvider, settings, _) {
+          final items = _getFilteredItems();
+
+          if (items.isEmpty) {
+            return Center(
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  const Icon(Icons.video_library, size: 80, color: Colors.grey),
+                  const SizedBox(height: 16),
+                  const Text(
+                    'Нет видео',
+                    style: TextStyle(color: Colors.white),
+                  ),
+                  const SizedBox(height: 24),
+                  IconButton(
+                    icon: const Icon(
+                      Icons.arrow_back,
+                      size: 40,
+                      color: Colors.deepOrange,
+                    ),
+                    onPressed: () => Navigator.pop(context),
+                  ),
+                ],
+              ),
+            );
+          }
+
+          final currentItem = items[_currentIndex.clamp(0, items.length - 1)];
+
+          return GestureDetector(
+            onDoubleTap: () => Navigator.push(
+              context,
+              MaterialPageRoute(builder: (_) => MediaViewer(item: currentItem)),
+            ),
+            onHorizontalDragEnd: (details) {
+              if ((details.primaryVelocity ?? 0) < -500) {
+                _nextImage();
+              } else if ((details.primaryVelocity ?? 0) > 500) {
+                _previousImage();
+              }
+            },
+            onVerticalDragEnd: (details) {
+              if ((details.primaryVelocity ?? 0) < -500) {
+                _saveToFavorites(currentItem);
+              } else if ((details.primaryVelocity ?? 0) > 500) {
+                _downloadImage(currentItem);
+              }
+            },
+            child: Stack(
+              fit: StackFit.expand,
+              children: [
+                MediaVideoPreview(
+                  key: ValueKey(currentItem.mediaUrl),
+                  url: currentItem.mediaUrl,
+                  headers: currentItem.mediaHeaders,
+                ),
+                Positioned(
+                  top: 0,
+                  left: 0,
+                  right: 0,
+                  child: Container(
+                    padding: EdgeInsets.only(
+                      top: MediaQuery.of(context).padding.top,
+                    ),
+                    decoration: BoxDecoration(
+                      gradient: LinearGradient(
+                        begin: Alignment.topCenter,
+                        end: Alignment.bottomCenter,
+                        colors: [
+                          Colors.black.withOpacity(0.7),
+                          Colors.transparent,
+                        ],
+                      ),
+                    ),
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        IconButton(
+                          icon: const Icon(
+                            Icons.arrow_back,
+                            color: Colors.white,
+                          ),
+                          onPressed: () => Navigator.pop(context),
+                        ),
+                        const Text(
+                          'Видео',
+                          style: TextStyle(
+                            color: Colors.white,
+                            fontSize: 18,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                        IconButton(
+                          icon: Icon(
+                            settings.showNsfw
+                                ? Icons.visibility
+                                : Icons.visibility_off,
+                            color: settings.showNsfw ? Colors.red : Colors.grey,
+                          ),
+                          onPressed: () {
+                            settings.toggleNsfw();
+                            setState(() {
+                              _currentIndex = 0;
+                            });
+                          },
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+
+                Positioned(
+                  bottom: 20,
+                  left: 20,
+                  child: GestureDetector(
+                    onTap: () async {
+                      if (currentItem.postUrl != null) {
+                        await launchUrl(Uri.parse(currentItem.postUrl!));
+                      }
+                    },
+                    child: Container(
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(
+                        color: Colors.black.withOpacity(0.7),
+                        shape: BoxShape.circle,
+                      ),
+                      child: Text(
+                        _getSourceIcon(currentItem.sourceId),
+                        style: const TextStyle(fontSize: 24),
+                      ),
+                    ),
+                  ),
+                ),
+
+                Positioned(
+                  bottom: 20,
+                  left: 0,
+                  right: 0,
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      IconButton.filledTonal(
+                        onPressed: _history.isEmpty ? null : _previousImage,
+                        tooltip: 'Предыдущее видео',
+                        icon: const Icon(Icons.arrow_back),
+                      ),
+                      const SizedBox(width: 8),
+                      IconButton.filledTonal(
+                        onPressed: items.length < 2 ? null : _nextImage,
+                        tooltip: 'Следующее видео',
+                        icon: const Icon(Icons.arrow_forward),
+                      ),
+                    ],
+                  ),
+                ),
+
+                Positioned(
+                  bottom: 20,
+                  right: 20,
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 12,
+                      vertical: 6,
+                    ),
+                    decoration: BoxDecoration(
+                      color: Colors.black.withOpacity(0.7),
+                      borderRadius: BorderRadius.circular(20),
+                    ),
+                    child: Text(
+                      '${_currentIndex + 1}/${items.length}',
+                      style: const TextStyle(color: Colors.white, fontSize: 12),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          );
+        },
+      ),
+    );
+  }
+}

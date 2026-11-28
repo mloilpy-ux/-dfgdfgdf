@@ -1,230 +1,352 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
-import '../providers/sources_provider.dart';
-import '../models/content_source.dart';
 
-class SourcesScreen extends StatefulWidget {
+import '../models/content_source.dart';
+import '../providers/content_provider.dart';
+import '../providers/sources_provider.dart';
+import 'browser_source_screen.dart';
+
+class SourcesScreen extends StatelessWidget {
   const SourcesScreen({super.key});
 
-  @override
-  State<SourcesScreen> createState() => _SourcesScreenState();
-}
-
-class _SourcesScreenState extends State<SourcesScreen> {
-  final _urlController = TextEditingController();
-
-  @override
-  void dispose() {
-    _urlController.dispose();
-    super.dispose();
+  void _message(BuildContext context, String message) {
+    if (context.mounted) {
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(message)));
+    }
   }
 
-  void _showAddSourceDialog() {
-    showDialog(
+  Future<String?> _input(
+    BuildContext context, {
+    required String title,
+    required String label,
+    String? hint,
+  }) {
+    return showDialog<String>(
+      context: context,
+      builder: (context) =>
+          _SourceInput(title: title, label: label, hint: hint),
+    );
+  }
+
+  Future<void> _addSource(
+    BuildContext context,
+    SourcesProvider sources,
+    ContentProvider content,
+  ) async {
+    final url = await _input(
+      context,
+      title: 'Добавить источник',
+      label: 'Ссылка',
+      hint: 'Telegram, Reddit, X, Pinterest или HTTPS-ссылка на веб-страницу',
+    );
+    if (url == null || !context.mounted) return;
+    try {
+      final source = await sources.addSource(url);
+      if (source.isActive && context.mounted)
+        await _parse(context, source, sources, content);
+      if (!source.isActive)
+        _message(context, 'Источник уже добавлен и выключен');
+    } on FormatException catch (error) {
+      _message(context, error.message);
+    } catch (_) {
+      _message(context, 'Не удалось сохранить источник');
+    }
+  }
+
+  Future<void> _parse(
+    BuildContext context,
+    ContentSource source,
+    SourcesProvider sources,
+    ContentProvider content,
+  ) async {
+    if (source.type.opensInBrowser) {
+      await Navigator.of(context).push<void>(
+        MaterialPageRoute(builder: (_) => BrowserSourceScreen(source: source)),
+      );
+      return;
+    }
+    final result = await content.importSource(source, sources);
+    _message(context, '${source.name}: ${result.message}');
+  }
+
+  Future<void> _toggle(
+    BuildContext context,
+    ContentSource source,
+    SourcesProvider sources,
+    ContentProvider content,
+  ) async {
+    try {
+      await sources.toggleSource(source);
+      await content.sourceChanged(sources.activeSources);
+      final enabled = sources.activeSources
+          .where((item) => item.id == source.id)
+          .firstOrNull;
+      if (context.mounted && enabled != null && !enabled.type.opensInBrowser)
+        await _parse(context, enabled, sources, content);
+    } catch (_) {
+      _message(context, 'Не удалось изменить источник');
+    }
+  }
+
+  Future<void> _delete(
+    BuildContext context,
+    ContentSource source,
+    SourcesProvider sources,
+    ContentProvider content,
+  ) async {
+    final confirmed = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
-        title: const Text('➕ Добавить источник'),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const Text('Поддерживаемые типы:'),
-            const SizedBox(height: 8),
-            const Text('🔴 Reddit: https://reddit.com/r/furry'),
-            const Text('🐦 Twitter: https://twitter.com/username'),
-            const Text('✈️ Telegram: https://t.me/channelname'),
-            const SizedBox(height: 16),
-            TextField(
-              controller: _urlController,
-              decoration: const InputDecoration(
-                labelText: 'URL источника',
-                hintText: 'https://reddit.com/r/furry',
-                border: OutlineInputBorder(),
-              ),
-              autofocus: true,
-            ),
-          ],
+        title: const Text('Удалить источник?'),
+        content: Text(
+          '${source.name} и загруженные из него материалы будут удалены.',
         ),
         actions: [
           TextButton(
-            onPressed: () => Navigator.pop(context),
+            onPressed: () => Navigator.pop(context, false),
             child: const Text('Отмена'),
           ),
-          ElevatedButton(
-            onPressed: () async {
-              if (_urlController.text.isEmpty) return;
-
-              try {
-                await context.read<SourcesProvider>().addSource(_urlController.text);
-                if (mounted) {
-                  Navigator.pop(context);
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(content: Text('✅ Источник добавлен')),
-                  );
-                  _urlController.clear();
-                }
-              } catch (e) {
-                if (mounted) {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(content: Text('❌ Ошибка: $e')),
-                  );
-                }
-              }
-            },
-            child: const Text('Добавить'),
+          TextButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('Удалить'),
           ),
         ],
       ),
     );
-  }
-
-  String _getSourceIcon(SourceType type) {
-    switch (type) {
-      case SourceType.reddit:
-        return '🔴';
-      case SourceType.twitter:
-        return '🐦';
-      case SourceType.telegram:
-        return '✈️';
+    if (confirmed != true) return;
+    try {
+      await sources.deleteSource(source.id);
+      await content.sourceChanged(sources.activeSources);
+    } catch (_) {
+      _message(context, 'Не удалось удалить источник');
     }
   }
 
   @override
   Widget build(BuildContext context) {
+    final sources = context.watch<SourcesProvider>();
+    final content = context.watch<ContentProvider>();
     return Scaffold(
       backgroundColor: Colors.grey.shade900,
       appBar: AppBar(
         backgroundColor: Colors.black,
-        title: const Text('🌐 Источники'),
+        foregroundColor: Colors.white,
+        title: const Text('Источники'),
         actions: [
           IconButton(
-            icon: const Icon(Icons.add, color: Colors.green),
-            onPressed: _showAddSourceDialog,
-            tooltip: 'Добавить источник',
+            tooltip: 'Обновить все активные источники',
+            icon: const Icon(Icons.refresh),
+            onPressed: content.isLoading || sources.activeSources.isEmpty
+                ? null
+                : () async {
+                    final report = await content.parseAllActiveSources(sources);
+                    final ok = report.values
+                        .where((result) => !result.failed)
+                        .length;
+                    _message(
+                      context,
+                      'Обновлено источников: $ok из ${report.length}',
+                    );
+                  },
           ),
         ],
       ),
-      body: Consumer<SourcesProvider>(
-        builder: (context, provider, _) {
-          if (provider.isLoading) {
-            return const Center(child: CircularProgressIndicator());
-          }
-
-          if (provider.sources.isEmpty) {
-            return Center(
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  const Icon(Icons.source, size: 64, color: Colors.grey),
-                  const SizedBox(height: 16),
-                  const Text('Нет источников', style: TextStyle(color: Colors.white, fontSize: 18)),
-                  const SizedBox(height: 8),
-                  ElevatedButton.icon(
-                    onPressed: _showAddSourceDialog,
-                    icon: const Icon(Icons.add),
-                    label: const Text('Добавить первый источник'),
-                    style: ElevatedButton.styleFrom(backgroundColor: Colors.deepOrange),
-                  ),
-                ],
+      body: sources.isLoading && sources.sources.isEmpty
+          ? const Center(child: CircularProgressIndicator())
+          : sources.loadError != null
+          ? Center(
+              child: TextButton(
+                onPressed: sources.loadSources,
+                child: Text('${sources.loadError}. Повторить'),
               ),
-            );
-          }
-
-          return ListView.builder(
-            padding: const EdgeInsets.all(8),
-            itemCount: provider.sources.length,
-            itemBuilder: (context, index) {
-              final source = provider.sources[index];
-              return Card(
-                color: source.isActive ? Colors.grey.shade800 : Colors.grey.shade900,
-                margin: const EdgeInsets.only(bottom: 8),
-                child: ListTile(
-                  leading: Text(_getSourceIcon(source.type), style: const TextStyle(fontSize: 24)),
-                  title: Text(
-                    source.name,
-                    style: TextStyle(
-                      color: Colors.white,
-                      fontWeight: FontWeight.bold,
-                      decoration: source.isActive ? null : TextDecoration.lineThrough,
+            )
+          : sources.sources.isEmpty
+          ? const Center(
+              child: Text(
+                'Нет источников',
+                style: TextStyle(color: Colors.white),
+              ),
+            )
+          : ListView.builder(
+              padding: const EdgeInsets.fromLTRB(8, 8, 8, 88),
+              itemCount: sources.sources.length,
+              itemBuilder: (context, index) {
+                final source = sources.sources[index];
+                final importing = content.isImporting(source.id);
+                final result = content.resultFor(source.id);
+                final browser = source.type.opensInBrowser;
+                final status = importing
+                    ? 'Загрузка…'
+                    : !source.isActive
+                    ? 'Выключен'
+                    : result?.message ??
+                          (browser
+                              ? 'Импорт через браузер'
+                              : 'Обновлений: ${source.parsedCount}');
+                return Card(
+                  color: source.isActive
+                      ? Colors.grey.shade800
+                      : Colors.grey.shade900,
+                  child: ListTile(
+                    onTap: browser && source.isActive && !importing
+                        ? () => _parse(context, source, sources, content)
+                        : null,
+                    leading: Text(
+                      source.type.icon,
+                      style: const TextStyle(fontSize: 22),
+                    ),
+                    title: Text(
+                      source.name,
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                    subtitle: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          source.url,
+                          style: const TextStyle(color: Colors.white70),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                        Text(
+                          status,
+                          style: TextStyle(
+                            color: result?.failed == true
+                                ? Colors.orange.shade200
+                                : Colors.white70,
+                          ),
+                        ),
+                        if (importing) const LinearProgressIndicator(),
+                      ],
+                    ),
+                    trailing: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Switch(
+                          value: source.isActive,
+                          onChanged: (_) =>
+                              _toggle(context, source, sources, content),
+                        ),
+                        PopupMenuButton<String>(
+                          iconColor: Colors.white,
+                          tooltip: 'Действия источника',
+                          onSelected: (action) => switch (action) {
+                            'adult' =>
+                              sources
+                                  .toggleNsfw(source)
+                                  .then((_) => content.loadContent()),
+                            'more' =>
+                              content
+                                  .importSource(source, sources, more: true)
+                                  .then((r) => _message(context, r.message)),
+                            'parse' => _parse(
+                              context,
+                              source,
+                              sources,
+                              content,
+                            ),
+                            _ => _delete(context, source, sources, content),
+                          },
+                          itemBuilder: (_) => [
+                            PopupMenuItem(
+                              value: 'adult',
+                              child: Text(
+                                source.isNsfw
+                                    ? 'Снять метку источника 18+'
+                                    : 'Источник содержит 18+',
+                              ),
+                            ),
+                            PopupMenuItem(
+                              value: 'more',
+                              enabled: source.isActive && !importing,
+                              child: const Text('Загрузить следующую порцию'),
+                            ),
+                            PopupMenuItem(
+                              value: 'parse',
+                              enabled: source.isActive && !importing,
+                              child: Text(
+                                browser
+                                    ? 'Открыть в браузере'
+                                    : 'Обновить источник',
+                              ),
+                            ),
+                            const PopupMenuItem(
+                              value: 'delete',
+                              child: Text('Удалить'),
+                            ),
+                          ],
+                        ),
+                      ],
                     ),
                   ),
-                  subtitle: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        source.url,
-                        style: const TextStyle(color: Colors.grey, fontSize: 12),
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                      ),
-                      if (source.lastParsed != null)
-                        Text(
-                          'Парсингов: ${source.parsedCount} | Последний: ${_formatDate(source.lastParsed!)}',
-                          style: const TextStyle(color: Colors.orange, fontSize: 11),
-                        ),
-                    ],
-                  ),
-                  trailing: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      // Переключатель активности
-                      Switch(
-                        value: source.isActive,
-                        onChanged: (_) => provider.toggleSource(source),
-                        activeColor: Colors.green,
-                      ),
-                      // Удалить
-                      IconButton(
-                        icon: const Icon(Icons.delete, color: Colors.red),
-                        onPressed: () async {
-                          final confirm = await showDialog<bool>(
-                            context: context,
-                            builder: (context) => AlertDialog(
-                              title: const Text('Удалить источник?'),
-                              content: Text('${source.name} будет удалён'),
-                              actions: [
-                                TextButton(
-                                  onPressed: () => Navigator.pop(context, false),
-                                  child: const Text('Отмена'),
-                                ),
-                                ElevatedButton(
-                                  onPressed: () => Navigator.pop(context, true),
-                                  style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
-                                  child: const Text('Удалить'),
-                                ),
-                              ],
-                            ),
-                          );
-
-                          if (confirm == true) {
-                            await provider.deleteSource(source.id);
-                          }
-                        },
-                      ),
-                    ],
-                  ),
-                ),
-              );
-            },
-          );
-        },
-      ),
+                );
+              },
+            ),
       floatingActionButton: FloatingActionButton.extended(
-        onPressed: _showAddSourceDialog,
+        onPressed: () => _addSource(context, sources, content),
         icon: const Icon(Icons.add),
         label: const Text('Добавить источник'),
-        backgroundColor: Colors.deepOrange,
+        backgroundColor: const Color(0xFF292333),
       ),
     );
   }
+}
 
-  String _formatDate(DateTime date) {
-    final now = DateTime.now();
-    final diff = now.difference(date);
+class _SourceInput extends StatefulWidget {
+  const _SourceInput({
+    required this.title,
+    required this.label,
+    required this.hint,
+  });
+  final String title;
+  final String label;
+  final String? hint;
 
-    if (diff.inMinutes < 1) return 'только что';
-    if (diff.inHours < 1) return '${diff.inMinutes} мин назад';
-    if (diff.inDays < 1) return '${diff.inHours} ч назад';
-    return '${diff.inDays} дн назад';
+  @override
+  State<_SourceInput> createState() => _SourceInputState();
+}
+
+class _SourceInputState extends State<_SourceInput> {
+  final _controller = TextEditingController();
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
   }
+
+  void _submit() {
+    final value = _controller.text.trim();
+    if (value.isNotEmpty) Navigator.pop(context, value);
+  }
+
+  @override
+  Widget build(BuildContext context) => AlertDialog(
+    title: Text(widget.title),
+    content: TextField(
+      controller: _controller,
+      autofocus: true,
+      autocorrect: false,
+      enableSuggestions: false,
+      keyboardType: TextInputType.url,
+      onSubmitted: (_) => _submit(),
+      decoration: InputDecoration(
+        labelText: widget.label,
+        helperText: widget.hint,
+        helperMaxLines: 3,
+      ),
+    ),
+    actions: [
+      TextButton(
+        onPressed: () => Navigator.pop(context),
+        child: const Text('Отмена'),
+      ),
+      FilledButton(onPressed: _submit, child: const Text('Добавить')),
+    ],
+  );
 }

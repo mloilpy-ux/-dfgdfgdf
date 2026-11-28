@@ -1,4 +1,44 @@
+name: furry_content_hub
+description: Furry wallpaper aggregator
+publish_to: 'none'
+version: 1.3.2+8
+
+environment:
+  sdk: '>=3.9.0 <4.0.0'
+
+dependencies:
+  flutter:
+    sdk: flutter
+
+  workmanager: 0.9.0+3
+  # Keep the federated implementations compatible with Flutter 3.35.
+  workmanager_android: 0.9.0+2
+  workmanager_apple: 0.9.1+2
+  workmanager_platform_interface: 0.9.1+1
+  flutter_cache_manager: ^3.4.1
+  provider: ^6.1.1
+  sqflite: ^2.3.0
+  path: ^1.9.0
+  shared_preferences: ^2.2.2
+  http: ^1.2.0
+  crypto: ^3.0.6
+  html: ^0.15.4
+  cached_network_image: ^3.3.1
+  url_launcher: ^6.2.4
   path_provider: ^2.1.1
-  intl: ^0.18.1
-  share_plus: ^7.2.1
+  share_plus: ^7.2.0
   video_player: ^2.8.2
+  webview_flutter: 4.13.0
+  webview_flutter_android: 4.7.0
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  integration_test:
+    sdk: flutter
+  flutter_lints: ^3.0.0
+
+flutter:
+  uses-material-design: true
+  assets:
+    - assets/web_media.js

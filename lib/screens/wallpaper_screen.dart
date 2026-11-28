@@ -1,354 +1,575 @@
-import 'package:flutter/material.dart';
-import 'package:provider/provider.dart';
+import '../services/media_download.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+import '../services/logger_service.dart';
+import 'experience_screen.dart';
+import 'media_viewer.dart';
+import 'mixes_screen.dart';
+
 import 'package:cached_network_image/cached_network_image.dart';
-import 'package:http/http.dart' as http;
-import 'package:path_provider/path_provider.dart';
+import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'dart:io';
-import '../providers/content_provider.dart';
-import '../providers/sources_provider.dart';
-import '../providers/settings_provider.dart';
-import '../models/content_item.dart';
-import '../widgets/furry_loading.dart';
-import '../services/wallpaper_service.dart';
-import 'logs_screen.dart';
-import 'favorites_screen.dart';
-import 'sources_screen.dart';
-import 'gifs_screen.dart';
-import 'videos_screen.dart';
+import 'package:provider/provider.dart';
 import 'package:url_launcher/url_launcher.dart';
+
+import '../models/content_item.dart';
+import '../providers/content_provider.dart';
+import '../providers/settings_provider.dart';
+import '../providers/sources_provider.dart';
+import '../services/wallpaper_service.dart';
+import '../theme.dart';
+import 'favorites_screen.dart';
+import 'gifs_screen.dart';
+import 'logs_screen.dart';
+import 'sources_screen.dart';
+import 'videos_screen.dart';
+
+enum _Destination { gifs, videos, sources, logs, filter, experience, mixes }
 
 class WallpaperScreen extends StatefulWidget {
   const WallpaperScreen({super.key});
+
   @override
   State<WallpaperScreen> createState() => _WallpaperScreenState();
 }
 
-class _WallpaperScreenState extends State<WallpaperScreen> {
-  int _currentIndex = 0;
-  bool _isDownloading = false;
-  final List<int> _history = [];
-  final Set<String> _errorUrls = {};
+class _WallpaperScreenState extends State<WallpaperScreen>
+    with WidgetsBindingObserver {
+  int _index = 0;
+  final _reportedMediaFailures = <String>{};
+  bool _refreshing = true;
+  bool _downloading = false;
+  bool _settingWallpaper = false;
+  bool _saving = false;
 
   @override
   void initState() {
     super.initState();
-    WidgetsBinding.instance.addPostFrameCallback((_) => _loadContent());
+    WidgetsBinding.instance.addObserver(this);
+    WidgetsBinding.instance.addPostFrameCallback((_) => _loadOnStart());
   }
 
-  Future<void> _loadContent() async {
-    final contentProvider = context.read<ContentProvider>();
-    final sourcesProvider = context.read<SourcesProvider>();
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
 
-    // БАГ #3 ИСПРАВЛЕН: сброс индекса и истории перед загрузкой
-    setState(() {
-      _currentIndex = 0;
-      _history.clear();
-      _errorUrls.clear();
-    });
-
-    await contentProvider.loadContent();
-
-    if (contentProvider.items.isEmpty) {
-      try {
-        await contentProvider.parseAllActiveSources(sourcesProvider);
-      } catch (e) {
-        debugPrint('Ошибка парсинга при старте: $e');
-      }
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    LoggerService.instance.log('Состояние приложения: ${state.name}');
+    if (state == AppLifecycleState.resumed) _receiveShared();
+    if (state == AppLifecycleState.resumed) {
+      context.read<ContentProvider>().loadContent();
+      context.read<SourcesProvider>().refreshStats();
     }
   }
 
-  void _nextImage() {
-    HapticFeedback.selectionClick();
-    final items = _getFilteredItems();
-    if (items.isEmpty) return;
-
-    // БАГ #1 ИСПРАВЛЕН: clamp защищает от RangeError
-    final safeIndex = _currentIndex.clamp(0, items.length - 1);
-    _history.add(safeIndex);
-    context.read<ContentProvider>().markAsShown(items[safeIndex].id);
-    setState(() => _currentIndex = (safeIndex + 1) % items.length);
-  }
-
-  void _previousImage() {
-    if (_history.isEmpty) return;
-    setState(() => _currentIndex = _history.removeLast());
-  }
-
-  List<ContentItem> _getFilteredItems() {
-    final contentProvider = context.read<ContentProvider>();
-    final settings = context.read<SettingsProvider>();
-    var items = contentProvider.items;
-    if (!settings.showNsfw) items = items.where((i) => !i.isNsfw).toList();
-    items = items.where((i) => !i.isGif).toList();
-    items = items.where((i) => !_errorUrls.contains(i.mediaUrl)).toList();
-    return items;
-  }
-
-  // БАГ #1 ИСПРАВЛЕН: безопасный геттер текущего элемента
-  ContentItem? _getCurrentItem(List<ContentItem> items) {
-    if (items.isEmpty) return null;
-    return items[_currentIndex.clamp(0, items.length - 1)];
-  }
-
-  Future<void> _downloadImage(ContentItem item) async {
-    HapticFeedback.mediumImpact();
-    setState(() => _isDownloading = true);
+  Future<void> _receiveShared() async {
     try {
-      final response = await http.get(Uri.parse(item.mediaUrl));
-      // БАГ #4 ИСПРАВЛЕН: fallback на внутреннее хранилище если внешнее недоступно
-      final dir = await getExternalStorageDirectory()
-          ?? await getApplicationDocumentsDirectory();
-      final fileName = 'furry_${DateTime.now().millisecondsSinceEpoch}.jpg';
-      await File('${dir.path}/$fileName').writeAsBytes(response.bodyBytes);
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-          content: Text('💾 $fileName'),
-          duration: const Duration(seconds: 1),
-          backgroundColor: Colors.green,
-        ));
+      final text = await const MethodChannel(
+        'com.furry.wallpaper/set',
+      ).invokeMethod<String>('takeSharedUrl');
+      final url = text == null
+          ? null
+          : RegExp(r'https://[^\s]+').firstMatch(text)?.group(0);
+      if (url != null && mounted) {
+        final sources = context.read<SourcesProvider>();
+        final source = await sources.addSource(url);
+        _showMessage('Источник добавлен из Android');
+        if (mounted)
+          await context.read<ContentProvider>().importSource(source, sources);
       }
     } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-          content: Text('❌ Ошибка скачивания'),
-          duration: Duration(seconds: 1),
-          backgroundColor: Colors.red,
-        ));
-      }
-    } finally {
-      if (mounted) setState(() => _isDownloading = false);
+      LoggerService.instance.log('Получение ссылки: ${e.runtimeType}');
     }
   }
 
-  Future<void> _saveToFavorites(ContentItem item) async {
-    HapticFeedback.lightImpact();
-    await context.read<ContentProvider>().toggleSave(item);
-    if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-        content: Text(item.isSaved ? '💜' : '💔'),
-        duration: const Duration(milliseconds: 500),
-        backgroundColor: item.isSaved ? Colors.pink : Colors.grey,
-      ));
+  Future<void> _loadOnStart() async {
+    if (!mounted) return;
+    final content = context.read<ContentProvider>();
+    final sources = context.read<SourcesProvider>();
+    try {
+      await sources.loadSources();
+      await content.loadContent();
+      await _receiveShared();
+      final prefs = await SharedPreferences.getInstance();
+      if (mounted && !(prefs.getBool('gesturesSeen') ?? false)) {
+        await showGestures(context);
+        await prefs.setBool('gesturesSeen', true);
+      }
+      if (content.items.isEmpty) await content.parseAllActiveSources(sources);
+    } catch (_) {
+      _showMessage('Не удалось загрузить обои');
+    } finally {
+      if (mounted) setState(() => _refreshing = false);
+    }
+  }
+
+  Future<void> _refresh() async {
+    if (_refreshing) return;
+    final content = context.read<ContentProvider>();
+    final sources = context.read<SourcesProvider>();
+    setState(() => _refreshing = true);
+    try {
+      final results = await content.parseAllActiveSources(sources);
+      if (results.isEmpty) {
+        _showMessage('Добавьте или включите источник');
+      } else if (results.values.every((result) => result.failed)) {
+        _showMessage(
+          'Не удалось обновить источники. Подробности в разделе «Источники»',
+        );
+      }
+      if (mounted) setState(() => _index = 0);
+    } finally {
+      if (mounted) setState(() => _refreshing = false);
+    }
+  }
+
+  void _move(List<ContentItem> items, int index, int offset) {
+    if (index >= items.length - 3 &&
+        !context.read<ContentProvider>().isLoading) {
+      context.read<ContentProvider>().parseAllActiveSources(
+        context.read<SourcesProvider>(),
+        more: true,
+      );
+    }
+    if (items.length < 2) return;
+    HapticFeedback.selectionClick();
+    setState(() => _index = (index + offset) % items.length);
+  }
+
+  void _showMessage(String message) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context)
+      ..hideCurrentSnackBar()
+      ..showSnackBar(SnackBar(content: Text(message)));
+  }
+
+  Future<void> _download(ContentItem item) async {
+    if (_downloading) return;
+    setState(() => _downloading = true);
+    try {
+      final location = await MediaDownload.save(item);
+      if (mounted)
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('Сохранено: $location')));
+    } catch (_) {
+      if (mounted)
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Не удалось скачать медиа. Подробности в журнале.'),
+          ),
+        );
+    } finally {
+      if (mounted) setState(() => _downloading = false);
+    }
+  }
+
+  Future<void> _save(ContentItem item) async {
+    if (_saving) return;
+    setState(() => _saving = true);
+    try {
+      final saved = await context.read<ContentProvider>().toggleSave(item);
+      _showMessage(
+        saved
+            ? (item.isSaved ? 'Удалено из избранного' : 'Добавлено в избранное')
+            : 'Не удалось обновить избранное',
+      );
+    } finally {
+      if (mounted) setState(() => _saving = false);
     }
   }
 
   Future<void> _setWallpaper(ContentItem item) async {
-    HapticFeedback.heavyImpact();
-    showDialog(
-      context: context,
-      barrierDismissible: false,
-      builder: (_) => const Center(
-        child: Column(mainAxisSize: MainAxisSize.min, children: [
-          CircularProgressIndicator(color: Colors.purple),
-          SizedBox(height: 16),
-          Text('Установка обоев... 🐾',
-              style: TextStyle(color: Colors.white, fontSize: 16)),
-        ]),
-      ),
-    );
+    if (_settingWallpaper) return;
+    setState(() => _settingWallpaper = true);
     try {
-      final success = await WallpaperService.setWallpaper(item.mediaUrl);
-      if (mounted) {
-        Navigator.pop(context);
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-          content: Text(success ? '🖼️ Обои установлены!' : '❌ Ошибка'),
-          duration: const Duration(seconds: 2),
-          backgroundColor: success ? Colors.green : Colors.red,
-        ));
-      }
-    } catch (e) {
-      if (mounted) {
-        Navigator.pop(context);
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-          content: Text('❌ Ошибка установки'),
-          duration: Duration(seconds: 2),
-          backgroundColor: Colors.red,
-        ));
-      }
+      final installed = await WallpaperService.setWallpaper(
+        item.mediaUrl,
+        headers: item.mediaHeaders,
+      );
+      _showMessage(
+        installed ? 'Главный экран обновлён' : 'Не удалось установить обои',
+      );
+    } finally {
+      if (mounted) setState(() => _settingWallpaper = false);
     }
   }
 
-  void _handleError(String url) {
-    // БАГ #2 ИСПРАВЛЕН: нельзя setState во время build (errorWidget вызывается в build).
-    // Future.microtask выходит из фазы build перед изменением состояния.
-    // БАГ #5 ИСПРАВЛЕН: mounted-проверка перед delayed-вызовом
-    Future.microtask(() {
-      if (!mounted) return;
-      setState(() => _errorUrls.add(url));
-      Future.delayed(const Duration(milliseconds: 300), () {
-        if (mounted) _nextImage();
-      });
-    });
+  Future<void> _openOriginal(String url) async {
+    final uri = Uri.tryParse(url);
+    try {
+      if (uri != null &&
+          (uri.scheme == 'https' || uri.scheme == 'http') &&
+          await launchUrl(uri, mode: LaunchMode.externalApplication))
+        return;
+    } catch (_) {
+      // The device may not have an app that can open the link.
+    }
+    _showMessage('Не удалось открыть публикацию');
   }
 
-  String _getSourceIcon(String sourceId) {
-    if (sourceId.contains('reddit')) return '🔴';
-    if (sourceId.contains('twitter')) return '🐦';
-    if (sourceId.contains('telegram')) return '✈️';
-    return '🌐';
+  Future<void> _open(Widget screen) async {
+    await Navigator.of(
+      context,
+    ).push<void>(MaterialPageRoute(builder: (_) => screen));
+  }
+
+  Future<void> _openSources() => _open(const SourcesScreen());
+
+  Future<void> _chooseSource() async {
+    final provider = context.read<ContentProvider>();
+    final sources = context.read<SourcesProvider>().activeSources;
+    final chosen = await showDialog<String>(
+      context: context,
+      builder: (context) => SimpleDialog(
+        title: const Text('Показывать источник'),
+        children: [
+          SimpleDialogOption(
+            onPressed: () => Navigator.pop(context, ''),
+            child: const Text('Все источники'),
+          ),
+          for (final source in sources)
+            SimpleDialogOption(
+              onPressed: () => Navigator.pop(context, source.id),
+              child: Text(source.name),
+            ),
+        ],
+      ),
+    );
+    if (chosen != null && mounted) {
+      provider.selectSource(chosen.isEmpty ? null : chosen);
+      setState(() => _index = 0);
+    }
+  }
+
+  Future<void> _select(_Destination destination) async {
+    switch (destination) {
+      case _Destination.experience:
+        await _open(const ExperienceScreen());
+      case _Destination.mixes:
+        await _open(const MixesScreen());
+      case _Destination.gifs:
+        await _open(const GifsScreen());
+      case _Destination.videos:
+        await _open(const VideosScreen());
+      case _Destination.sources:
+        await _chooseSource();
+      case _Destination.logs:
+        await _open(const LogsScreen());
+      case _Destination.filter:
+        await context.read<SettingsProvider>().toggleNsfw();
+        if (mounted) setState(() => _index = 0);
+    }
   }
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: Colors.black,
-      body: Consumer2<ContentProvider, SettingsProvider>(
-        builder: (context, contentProvider, settings, _) {
-          final items = _getFilteredItems();
+    final content = context.watch<ContentProvider>();
+    final settings = context.watch<SettingsProvider>();
+    final items = content.itemsFor(
+      MediaKind.image,
+      showNsfw: settings.showNsfw,
+    );
+    final loading = _refreshing || content.isLoading;
 
-          if (contentProvider.isLoading) {
-            return const Center(child: FurryLoadingIndicator());
-          }
-
-          if (items.isEmpty) {
-            return Center(
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  const Icon(Icons.wallpaper_outlined, size: 90, color: Colors.grey),
-                  const SizedBox(height: 20),
-                  const Text('Нет контента',
-                      style: TextStyle(color: Colors.white, fontSize: 22, fontWeight: FontWeight.bold)),
-                  const SizedBox(height: 8),
-                  const Text('Нажмите кнопку ниже, чтобы загрузить обои',
-                      style: TextStyle(color: Colors.grey, fontSize: 16)),
-                  const SizedBox(height: 32),
-                  ElevatedButton.icon(
-                    onPressed: _loadContent,
-                    icon: const Icon(Icons.refresh),
-                    label: const Text('Обновить источники'),
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: Colors.deepOrange,
-                      foregroundColor: Colors.white,
-                      padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 16),
-                      textStyle: const TextStyle(fontSize: 18),
-                    ),
-                  ),
-                ],
-              ),
-            );
-          }
-
-          // БАГ #1 ИСПРАВЛЕН: безопасный геттер вместо прямого items[_currentIndex]
-          final currentItem = _getCurrentItem(items)!;
-
-          return GestureDetector(
-            onHorizontalDragEnd: (details) {
-              final v = details.primaryVelocity ?? 0;
-              if (v > 500) _nextImage();
-              else if (v < -500) _previousImage();
-            },
-            onVerticalDragEnd: (details) {
-              final v = details.primaryVelocity ?? 0;
-              if (v < -500) _saveToFavorites(currentItem);
-              else if (v > 500) _downloadImage(currentItem);
-            },
-            child: Stack(
-              fit: StackFit.expand,
-              children: [
-                CachedNetworkImage(
-                  imageUrl: currentItem.mediaUrl,
-                  fit: BoxFit.contain,
-                  placeholder: (_, __) => const Center(child: FurryLoadingIndicator()),
-                  errorWidget: (_, url, __) {
-                    _handleError(url);
-                    return const Center(
-                      child: Column(mainAxisSize: MainAxisSize.min, children: [
-                        Icon(Icons.skip_next, size: 64, color: Colors.orange),
-                        SizedBox(height: 8),
-                        Text('Пропуск...', style: TextStyle(color: Colors.white)),
-                      ]),
-                    );
-                  },
+    return Theme(
+      data: wallpaperTheme,
+      child: Scaffold(
+        appBar: AppBar(
+          title: const Text('Обои'),
+          actions: [
+            IconButton(
+              onPressed: () => _open(const FavoritesScreen()),
+              tooltip: 'Избранное',
+              icon: const Icon(Icons.favorite_border_rounded),
+            ),
+            IconButton(
+              onPressed: _openSources,
+              tooltip: 'Источники',
+              icon: const Icon(Icons.tune_rounded),
+            ),
+            PopupMenuButton<_Destination>(
+              tooltip: 'Другие разделы',
+              onSelected: _select,
+              itemBuilder: (_) => [
+                const PopupMenuItem(
+                  value: _Destination.mixes,
+                  child: Text('Миксы'),
                 ),
-                Positioned(
-                  top: 0, left: 0, right: 0,
-                  child: Container(
-                    padding: EdgeInsets.only(top: MediaQuery.of(context).padding.top),
-                    decoration: BoxDecoration(
-                      gradient: LinearGradient(
-                        begin: Alignment.topCenter,
-                        end: Alignment.bottomCenter,
-                        colors: [Colors.black.withOpacity(0.7), Colors.transparent],
-                      ),
-                    ),
-                    child: Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                const PopupMenuItem(
+                  value: _Destination.experience,
+                  child: Text('Загрузка и свайпы'),
+                ),
+
+                CheckedPopupMenuItem(
+                  value: _Destination.sources,
+                  checked: content.selectedSourceId != null,
+                  child: const Text('Фильтр по источнику'),
+                ),
+                const PopupMenuItem(
+                  value: _Destination.logs,
+                  child: Text('Журнал'),
+                ),
+                CheckedPopupMenuItem(
+                  value: _Destination.filter,
+                  checked: settings.showNsfw,
+                  child: const Text('Показывать 18+'),
+                ),
+              ],
+            ),
+            const SizedBox(width: 6),
+          ],
+        ),
+        bottomNavigationBar: NavigationBar(
+          selectedIndex: 0,
+          backgroundColor: wallpaperTheme.colorScheme.surface,
+          indicatorColor: wallpaperTheme.colorScheme.surfaceContainerLow,
+          onDestinationSelected: (index) {
+            if (index == 1) _select(_Destination.gifs);
+            if (index == 2) _select(_Destination.videos);
+          },
+          destinations: const [
+            NavigationDestination(
+              icon: Icon(Icons.image_outlined),
+              label: 'Картинки',
+            ),
+            NavigationDestination(
+              icon: Icon(Icons.gif_box_outlined),
+              label: 'GIF',
+            ),
+            NavigationDestination(
+              icon: Icon(Icons.play_circle_outline),
+              label: 'Видео',
+            ),
+          ],
+        ),
+        body: SafeArea(
+          top: false,
+          child: items.isEmpty
+              ? _emptyState(loading)
+              : _gallery(items, loading),
+        ),
+      ),
+    );
+  }
+
+  Widget _emptyState(bool loading) {
+    if (loading) {
+      return const Center(
+        child: CircularProgressIndicator(semanticsLabel: 'Загрузка обоев'),
+      );
+    }
+
+    return Center(
+      child: SingleChildScrollView(
+        padding: const EdgeInsets.all(24),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Icon(Icons.wallpaper_rounded, size: 48),
+            const SizedBox(height: 16),
+            Text(
+              'Обоев пока нет',
+              style: wallpaperTheme.textTheme.headlineSmall,
+            ),
+            const SizedBox(height: 8),
+            const Text(
+              'Проверь источники, фильтр или обнови подборку.',
+              textAlign: TextAlign.center,
+            ),
+            const SizedBox(height: 24),
+            FilledButton.icon(
+              onPressed: _refresh,
+              icon: const Icon(Icons.refresh_rounded),
+              label: const Text('Обновить подборку'),
+            ),
+            TextButton(
+              onPressed: _openSources,
+              child: const Text('Открыть источники'),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _gallery(List<ContentItem> items, bool loading) {
+    final index = _index.clamp(0, items.length - 1);
+    final item = items[index];
+    final canBrowse = items.length > 1;
+    final source = context
+        .watch<SourcesProvider>()
+        .sources
+        .where((source) => source.id == item.sourceId)
+        .firstOrNull;
+    final colors = wallpaperTheme.colorScheme;
+    final title = item.title.trim();
+    final original = item.postUrl;
+
+    return Center(
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 600),
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(16, 6, 16, 12),
+          child: Column(
+            children: [
+              Expanded(
+                child: GestureDetector(
+                  onDoubleTap: () => _open(MediaViewer(item: item)),
+                  onHorizontalDragEnd: (details) {
+                    final speed = details.primaryVelocity ?? 0;
+                    if (speed.abs() > 200)
+                      _move(items, index, speed < 0 ? 1 : -1);
+                  },
+                  onVerticalDragEnd: (details) {
+                    final speed = details.primaryVelocity ?? 0;
+                    if (speed < -500) _save(item);
+                    if (speed > 500) _download(item);
+                  },
+                  child: ClipRRect(
+                    borderRadius: BorderRadius.circular(24),
+                    child: Stack(
+                      fit: StackFit.expand,
                       children: [
-                        Row(children: [
-                          IconButton(icon: const Icon(Icons.source, color: Colors.white),
-                              onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const SourcesScreen()))),
-                          IconButton(icon: const Icon(Icons.gif_box, color: Colors.white),
-                              onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const GifsScreen()))),
-                          IconButton(icon: const Icon(Icons.video_library, color: Colors.white),
-                              onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const VideosScreen()))),
-                        ]),
-                        Row(children: [
-                          IconButton(icon: const Icon(Icons.favorite, color: Colors.pink),
-                              onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const FavoritesScreen()))),
-                          Consumer<SettingsProvider>(
-                            builder: (context, settings, _) => IconButton(
-                              icon: Icon(settings.showNsfw ? Icons.visibility : Icons.visibility_off,
-                                  color: settings.showNsfw ? Colors.red : Colors.grey),
-                              onPressed: () {
-                                settings.toggleNsfw();
-                                setState(() { _currentIndex = 0; _history.clear(); });
-                              },
+                        ColoredBox(color: colors.surfaceContainerLow),
+                        CachedNetworkImage(
+                          key: ValueKey(item.mediaUrl),
+                          imageUrl: item.mediaUrl,
+                          httpHeaders: item.mediaHeaders,
+                          fit: BoxFit.contain,
+                          placeholder: (_, _) =>
+                              const Center(child: CircularProgressIndicator()),
+                          errorWidget: (_, url, error) {
+                            if (_reportedMediaFailures.length >= 100) _reportedMediaFailures.clear();
+                            if (_reportedMediaFailures.add(url)) {
+                              LoggerService.instance.log('Медиа: source=${item.sourceId}, id=${item.id}, host=${Uri.tryParse(url)?.host}, ошибка: $error', isError: true);
+                            }
+                            return const Center(
+                            child: Column(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Icon(Icons.broken_image_outlined, size: 34),
+                                SizedBox(height: 8),
+                                Text('Изображение недоступно'),
+                              ],
                             ),
+                          );
+                          },
+                        ),
+                        if (loading)
+                          const Align(
+                            alignment: Alignment.topCenter,
+                            child: LinearProgressIndicator(),
                           ),
-                          IconButton(icon: const Icon(Icons.article, color: Colors.amber),
-                              onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const LogsScreen()))),
-                          IconButton(icon: const Icon(Icons.refresh, color: Colors.white),
-                              onPressed: _loadContent),
-                        ]),
                       ],
                     ),
                   ),
                 ),
-                Positioned(
-                  bottom: 20, left: 20,
-                  child: GestureDetector(
-                    onTap: () async {
-                      if (currentItem.postUrl != null) await launchUrl(Uri.parse(currentItem.postUrl!));
-                    },
-                    child: Container(
-                      padding: const EdgeInsets.all(12),
-                      decoration: BoxDecoration(color: Colors.black.withOpacity(0.7), shape: BoxShape.circle),
-                      child: Text(_getSourceIcon(currentItem.sourceId), style: const TextStyle(fontSize: 24)),
+              ),
+              const SizedBox(height: 10),
+              Row(
+                children: [
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        if (title.isNotEmpty)
+                          Text(
+                            title,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: wallpaperTheme.textTheme.titleMedium,
+                          ),
+                        if (source != null)
+                          Text(
+                            source.name,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: TextStyle(color: colors.onSurfaceVariant),
+                          ),
+                      ],
                     ),
                   ),
-                ),
-                Positioned(
-                  bottom: 20, left: 0, right: 0,
-                  child: Center(
-                    child: GestureDetector(
-                      onTap: () => _setWallpaper(currentItem),
-                      child: Container(
-                        padding: const EdgeInsets.all(16),
-                        decoration: BoxDecoration(
-                          color: Colors.purple.withOpacity(0.9),
-                          shape: BoxShape.circle,
-                          boxShadow: [BoxShadow(color: Colors.purple.withOpacity(0.5), blurRadius: 20, spreadRadius: 5)],
-                        ),
-                        child: const Icon(Icons.wallpaper, color: Colors.white, size: 28),
+                  if (original != null)
+                    IconButton(
+                      onPressed: () => _openOriginal(original),
+                      tooltip: 'Открыть публикацию',
+                      icon: const Icon(Icons.open_in_new_rounded),
+                    ),
+                  IconButton(
+                    onPressed: loading ? null : _refresh,
+                    tooltip: 'Обновить подборку',
+                    icon: const Icon(Icons.refresh_rounded),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 5),
+              Row(
+                children: [
+                  IconButton.outlined(
+                    onPressed: canBrowse ? () => _move(items, index, -1) : null,
+                    tooltip: 'Предыдущие обои',
+                    icon: const Icon(Icons.arrow_back_rounded),
+                  ),
+                  Expanded(
+                    child: Text(
+                      '${index + 1} из ${items.length}',
+                      textAlign: TextAlign.center,
+                      style: TextStyle(color: colors.onSurfaceVariant),
+                    ),
+                  ),
+                  IconButton.outlined(
+                    onPressed: canBrowse ? () => _move(items, index, 1) : null,
+                    tooltip: 'Следующие обои',
+                    icon: const Icon(Icons.arrow_forward_rounded),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 8),
+              Row(
+                children: [
+                  Expanded(
+                    child: FilledButton(
+                      onPressed: _settingWallpaper
+                          ? null
+                          : () => _setWallpaper(item),
+                      child: Text(
+                        _settingWallpaper
+                            ? 'Устанавливаем…'
+                            : 'Установить обои',
                       ),
                     ),
                   ),
-                ),
-                Positioned(
-                  bottom: 20, right: 20,
-                  child: Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                    decoration: BoxDecoration(color: Colors.black.withOpacity(0.7), borderRadius: BorderRadius.circular(20)),
-                    child: Text('${_currentIndex + 1}/${items.length}',
-                        style: const TextStyle(color: Colors.white, fontSize: 12)),
+                  const SizedBox(width: 8),
+                  IconButton.outlined(
+                    onPressed: _saving ? null : () => _save(item),
+                    tooltip: item.isSaved
+                        ? 'Удалить из избранного'
+                        : 'В избранное',
+                    icon: Icon(
+                      item.isSaved
+                          ? Icons.favorite_rounded
+                          : Icons.favorite_border_rounded,
+                    ),
                   ),
-                ),
-              ],
-            ),
-          );
-        },
+                  const SizedBox(width: 6),
+                  IconButton.outlined(
+                    onPressed: _downloading ? null : () => _download(item),
+                    tooltip: 'Скачать',
+                    icon: _downloading
+                        ? const SizedBox.square(
+                            dimension: 18,
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          )
+                        : const Icon(Icons.download_rounded),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
       ),
     );
   }

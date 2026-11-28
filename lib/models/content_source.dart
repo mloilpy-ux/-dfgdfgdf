@@ -1,6 +1,9 @@
 import 'dart:math';
 
-enum SourceType { reddit, twitter, telegram }
+import 'content_item.dart';
+import 'source_type.dart';
+
+export 'source_type.dart';
 
 class ContentSource {
   final String id;
@@ -25,39 +28,114 @@ class ContentSource {
     this.parsedCount = 0,
   });
 
-  factory ContentSource.fromUrl(String rawUrl) {
-    // БАГ #3 ИСПРАВЛЕН: нормализуем URL — добавляем схему если нет
-    String url = rawUrl.trim();
-    if (!url.startsWith('http://') && !url.startsWith('https://')) {
-      url = 'https://$url';
+  factory ContentSource.fromUrl(String input) {
+    final value = input.trim();
+    final path = value.startsWith('/') ? value.substring(1) : value;
+    final normalized = value.startsWith('@')
+        ? 'https://t.me/${value.substring(1)}'
+        : (path.startsWith('r/') || path.startsWith('u/'))
+        ? 'https://www.reddit.com/$path'
+        : value;
+    final uri = Uri.tryParse(
+      normalized.contains('://') ? normalized : 'https://$normalized',
+    );
+    if (uri == null ||
+        uri.host.isEmpty ||
+        !{'https', 'http'}.contains(uri.scheme) ||
+        uri.userInfo.isNotEmpty) {
+      throw const FormatException('Введите корректную ссылку на источник');
     }
 
-    // БАГ #2 ИСПРАВЛЕН: уникальный ID через время + случайное число
-    final id = '${DateTime.now().millisecondsSinceEpoch}_'
-        '${Random().nextInt(99999)}';
-
-    String name;
-    SourceType type;
-
-    if (url.contains('reddit.com')) {
+    final host = uri.host.toLowerCase().replaceFirst(RegExp(r'^www\.'), '');
+    final parts = uri.pathSegments.where((part) => part.isNotEmpty).toList();
+    final first = parts.firstOrNull ?? '';
+    final second = parts.length > 1 ? parts[1] : '';
+    final validName = RegExp(r'^[a-zA-Z0-9_]+$');
+    late final String name;
+    late final String url;
+    late final SourceType type;
+    if ({
+      'reddit.com',
+      'old.reddit.com',
+      'm.reddit.com',
+      'redd.it',
+    }.contains(host)) {
+      final isCommunity = first == 'r' && validName.hasMatch(second);
+      name = isCommunity ? 'r/$second' : 'Reddit';
+      final path = isCommunity && parts.length == 2
+          ? '/r/${second.toLowerCase()}/'
+          : uri.path;
+      url = uri
+          .replace(
+            scheme: 'https',
+            host: host == 'reddit.com' || host == 'm.reddit.com'
+                ? 'www.reddit.com'
+                : host,
+            path: path,
+          )
+          .toString();
       type = SourceType.reddit;
-      final match = RegExp(r'r/([a-zA-Z0-9_]+)').firstMatch(url);
-      name = match != null ? 'r/${match.group(1)}' : 'Reddit Source';
-    } else if (url.contains('twitter.com') || url.contains('x.com')) {
-      type = SourceType.twitter;
-      final match = RegExp(r'(?:twitter|x)\.com/([^/]+)').firstMatch(url);
-      name = match != null ? '@${match.group(1)}' : 'Twitter Source';
-    } else if (url.contains('t.me')) {
+      if (uri.path == '/media') {
+        final media = Uri.tryParse(uri.queryParameters['url'] ?? '');
+        if (media != null &&
+            media.scheme == 'https' &&
+            media.userInfo.isEmpty &&
+            {
+              'i.redd.it',
+              'preview.redd.it',
+              'external-preview.redd.it',
+              'external-i.redd.it',
+              'v.redd.it',
+            }.contains(media.host) &&
+            MediaKind.fromUrl(media.toString()) != null) {
+          return ContentSource.fromUrl(media.toString());
+        }
+      }
+    } else if ({'t.me', 'telegram.me', 'telegram.dog'}.contains(host)) {
+      final channel = first == 's' ? second : first;
+      if (!validName.hasMatch(channel) ||
+          {
+            'c',
+            's',
+            'joinchat',
+            'share',
+            'addstickers',
+          }.contains(channel.toLowerCase())) {
+        throw const FormatException(
+          'Укажите ссылку на публичный канал Telegram',
+        );
+      }
+      name = '@$channel';
+      url = 'https://t.me/${channel.toLowerCase()}';
       type = SourceType.telegram;
-      final match = RegExp(r't\.me/([^/]+)').firstMatch(url);
-      name = match != null ? match.group(1)! : 'Telegram Channel';
+    } else if ({'x.com', 'twitter.com', 'mobile.twitter.com'}.contains(host)) {
+      name = first.isNotEmpty && validName.hasMatch(first) ? '@$first' : 'X';
+      final path = parts.length == 1 && validName.hasMatch(first)
+          ? '/${first.toLowerCase()}'
+          : uri.path;
+      url = uri.replace(scheme: 'https', host: 'x.com', path: path).toString();
+      type = SourceType.twitter;
+    } else if (host == 'pin.it' || _pinterest.hasMatch(host)) {
+      name = 'Pinterest';
+      url = uri.replace(scheme: 'https').toString();
+      type = SourceType.pinterest;
+    } else if (uri.scheme == 'https' &&
+        MediaKind.fromUrl(uri.toString()) != null) {
+      name = parts.last;
+      url = uri.removeFragment().toString();
+      type = SourceType.direct;
+    } else if (uri.scheme == 'https') {
+      name = host;
+      url = uri.toString();
+      type = SourceType.web;
     } else {
-      throw Exception('Неподдерживаемый тип источника. '
-          'Поддерживаются: reddit.com, t.me');
+      throw const FormatException(
+        'Укажите HTTPS-ссылку на веб-страницу или медиафайл',
+      );
     }
 
     return ContentSource(
-      id: id,
+      id: '${DateTime.now().microsecondsSinceEpoch}_${Random().nextInt(99999)}',
       name: name,
       url: url,
       type: type,
@@ -65,8 +143,21 @@ class ContentSource {
     );
   }
 
+  static final _pinterest = RegExp(
+    r'^(?:[a-z]{2}\.)?pinterest\.(?:[a-z]{2,3}|co\.[a-z]{2}|com\.[a-z]{2})$',
+  );
+
+  static ContentSource defaultTelegramSource() => ContentSource(
+    id: 'default_telegram_furries',
+    name: '@furries',
+    url: 'https://t.me/furries',
+    type: SourceType.telegram,
+    addedAt: DateTime.utc(2026, 11, 25),
+  );
+
   static List<ContentSource> getDefaultSources() {
     return [
+      defaultTelegramSource(),
       ContentSource(
         id: 'default_1',
         name: 'r/furry_irl',
@@ -116,14 +207,14 @@ class ContentSource {
       // БАГ #1 ИСПРАВЛЕН: orElse вместо краша на неизвестном типе
       type: SourceType.values.firstWhere(
         (e) => e.name == map['type'],
-        orElse: () => SourceType.reddit,
+        orElse: () => SourceType.web,
       ),
-      isActive: (map['isActive'] as int) == 1,
-      isNsfw: (map['isNsfw'] as int) == 1,
-      addedAt: DateTime.parse(map['addedAt'] as String),
-      lastParsed: map['lastParsed'] != null
-          ? DateTime.parse(map['lastParsed'] as String)
-          : null,
+      isActive: map['isActive'] != 0,
+      isNsfw: map['isNsfw'] == 1,
+      addedAt:
+          DateTime.tryParse(map['addedAt'] as String? ?? '') ??
+          DateTime.fromMillisecondsSinceEpoch(0),
+      lastParsed: DateTime.tryParse(map['lastParsed'] as String? ?? ''),
       parsedCount: (map['parsedCount'] as int?) ?? 0,
     );
   }
