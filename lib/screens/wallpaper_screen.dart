@@ -35,6 +35,7 @@ class WallpaperScreen extends StatefulWidget {
 class _WallpaperScreenState extends State<WallpaperScreen>
     with WidgetsBindingObserver {
   int _index = 0;
+  final _reportedMediaFailures = <String>{};
   bool _refreshing = true;
   bool _downloading = false;
   bool _settingWallpaper = false;
@@ -440,7 +441,12 @@ class _WallpaperScreenState extends State<WallpaperScreen>
                           fit: BoxFit.contain,
                           placeholder: (_, _) =>
                               const Center(child: CircularProgressIndicator()),
-                          errorWidget: (_, _, _) => const Center(
+                          errorWidget: (_, url, error) {
+                            if (_reportedMediaFailures.length >= 100) _reportedMediaFailures.clear();
+                            if (_reportedMediaFailures.add(url)) {
+                              LoggerService.instance.log('Медиа: source=${item.sourceId}, id=${item.id}, host=${Uri.tryParse(url)?.host}, ошибка: $error', isError: true);
+                            }
+                            return const Center(
                             child: Column(
                               mainAxisSize: MainAxisSize.min,
                               children: [
@@ -449,7 +455,8 @@ class _WallpaperScreenState extends State<WallpaperScreen>
                                 Text('Изображение недоступно'),
                               ],
                             ),
-                          ),
+                          );
+                          },
                         ),
                         if (loading)
                           const Align(
